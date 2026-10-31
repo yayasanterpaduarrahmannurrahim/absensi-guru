@@ -62,6 +62,11 @@ function withLock_(fn) {
     throw new AppError('BUSY', 'Server sedang sibuk. Silakan coba lagi beberapa detik lagi.');
   }
   lockDepth_++;
+  // Kirim tulisan tertunda & buang cache objek sheet agar pembacaan di dalam lock memakai objek baru.
+  // (Catatan: Apps Script dapat menyimpan nilai sel yang sudah dibaca dalam satu eksekusi;
+  //  pemeriksaan anti-ganda yang kritis karena itu juga memakai penanda CacheService.)
+  SpreadsheetApp.flush();
+  resetDbCache_();
   try {
     return fn();
   } finally {

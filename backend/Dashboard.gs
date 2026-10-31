@@ -188,6 +188,8 @@ function correctAttendance_(adminUser, input, now) {
         anomali: '', created_at: now.waktu,
       }, changes));
     }
+    // Koreksi menentukan ulang status/jam; penanda anti-ganda lama tidak lagi berlaku.
+    clearAttendanceMarkers_(id);
     logAudit_(adminUser.user_id, 'KOREKSI_ABSENSI', {
       attendance_id: id, guru: nama, tanggal: input.tanggal,
       sebelum: existing ? pick(existing) : null, sesudah: pick(saved), alasan: input.alasan,

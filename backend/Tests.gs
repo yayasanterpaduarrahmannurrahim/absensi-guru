@@ -42,6 +42,29 @@ function createTestRunner_() {
   return t;
 }
 
+/**
+ * Menjalankan semua uji regresi (Tahap 1–7 + login kode) berurutan lalu meringkas hasilnya.
+ * runTahap9Tests (uji beban) sengaja dijalankan terpisah karena mengubah jam kerja sementara.
+ */
+function runSemuaTes() {
+  const suites = ['runTahap1Tests', 'runTahap2Tests', 'runTahap3Tests', 'runTahap4Tests',
+    'runTahap5Tests', 'runTahap6Tests', 'runTahap7Tests', 'runLoginKodeTests'];
+  const summary = suites.map(name => {
+    console.log('===== ' + name + ' =====');
+    try {
+      globalThis[name]();
+      return '[LULUS] ' + name;
+    } catch (err) {
+      return '[GAGAL] ' + name + ' — ' + err.message;
+    }
+  });
+  console.log('===== RINGKASAN =====');
+  summary.forEach(line => console.log(line));
+  const failed = summary.filter(l => l.indexOf('[GAGAL]') === 0).length;
+  if (failed) throw new Error(failed + ' kelompok uji gagal. Lihat rincian di atas.');
+  console.log('Semua ' + suites.length + ' kelompok uji lulus.');
+}
+
 function runTahap1Tests() {
   const { test, assert, assertEq, finish } = createTestRunner_();
 
@@ -812,26 +835,33 @@ function runTahap9Tests() {
     });
 
     /* ----- Beban & absen ganda ----- */
-    let timing = {};
+    // Verifikasi lewat Web App (eksekusi baru = data terbaru) & TextFinder (selalu segar),
+    // bukan lewat nilai sel yang mungkin sudah di-cache oleh eksekusi uji ini.
+    const todayOf = list => UrlFetchApp.fetchAll(list.map(t => req('getToday', t))).map(parse).map(r => (r.ok ? r.data.record : null));
+    const countRows = u => findRowsBy_(SHEETS.ABSENSI, 'attendance_id', attendanceId_(now.tanggal, u.user_id)).length;
+
+    const timing = {};
     test(PARALEL + ' guru absen masuk BERSAMAAN: semua tercatat, tidak ada yang hilang/ganda', () => {
       const t0 = Date.now();
       const res = UrlFetchApp.fetchAll(users.slice(0, PARALEL).map((u, i) => req('checkIn', tokens[i], loc(i)))).map(parse);
       timing.masuk = Date.now() - t0;
       const c = tally(res);
-      assertEq(c.OK || 0, PARALEL, 'berhasil (rincian ' + JSON.stringify(c) + ')');
-      const rows = findRowsBy_(SHEETS.ABSENSI, 'tanggal', now.tanggal).filter(r => String(r.user_id).indexOf('TEST-T9-' + tag) === 0 && r.jam_masuk);
-      const ids = rows.map(r => r.user_id);
-      assertEq(new Set(ids).size, ids.length, 'tidak ada baris ganda');
-      assert(users.slice(0, PARALEL).every(u => ids.indexOf(u.user_id) >= 0), 'semua guru tercatat');
+      console.log('Absen masuk paralel → ' + JSON.stringify(c));
+      assertEq(c.OK || 0, PARALEL, 'berhasil');
+      const counts = users.slice(0, PARALEL).map(countRows);
+      assertEq(counts.filter(n => n !== 1).length, 0, 'setiap guru tepat 1 baris (jumlah baris: ' + counts.join(',') + ')');
+      const recs = todayOf(tokens.slice(0, PARALEL));
+      assertEq(recs.filter(r => r && r.jamMasuk).length, PARALEL, 'jam masuk terbaca dari server');
     });
 
     test('6 absen masuk sekaligus dari guru yang sama → tepat 1 berhasil', () => {
       const i = PARALEL;
       const res = UrlFetchApp.fetchAll([0, 1, 2, 3, 4, 5].map(k => req('checkIn', tokens[i], loc(i + k)))).map(parse);
       const c = tally(res);
-      assertEq(c.OK || 0, 1, 'berhasil (rincian ' + JSON.stringify(c) + ')');
+      console.log('6 absen masuk guru yang sama → ' + JSON.stringify(c));
+      assertEq(c.OK || 0, 1, 'berhasil');
       assertEq(c.ALREADY_CHECKED_IN || 0, 5, 'ditolak sebagai ganda');
-      assertEq(findRowsBy_(SHEETS.ABSENSI, 'attendance_id', attendanceId_(now.tanggal, users[i].user_id)).length, 1, 'tepat 1 baris');
+      assertEq(countRows(users[i]), 1, 'tepat 1 baris');
     });
 
     test(PARALEL + ' guru absen pulang BERSAMAAN + percobaan pulang ganda', () => {
@@ -841,10 +871,11 @@ function runTahap9Tests() {
       const res = UrlFetchApp.fetchAll(list).map(parse);
       timing.pulang = Date.now() - t0;
       const c = tally(res);
-      assertEq(c.OK || 0, PARALEL, 'pulang berhasil (rincian ' + JSON.stringify(c) + ')');
+      console.log('Absen pulang paralel (+2 ganda) → ' + JSON.stringify(c));
+      assertEq(c.OK || 0, PARALEL, 'pulang berhasil');
       assertEq(c.ALREADY_CHECKED_OUT || 0, 2, 'pulang ganda ditolak');
-      const rows = findRowsBy_(SHEETS.ABSENSI, 'tanggal', now.tanggal).filter(r => String(r.user_id).indexOf('TEST-T9-' + tag) === 0);
-      assert(rows.filter(r => r.jam_pulang).length === PARALEL, 'jam pulang tercatat untuk semua');
+      const recs = todayOf(tokens.slice(0, PARALEL));
+      assertEq(recs.filter(r => r && r.jamMasuk && r.jamPulang).length, PARALEL, 'jam masuk & pulang utuh untuk semua');
       console.log('Waktu ' + PARALEL + ' absen masuk paralel: ' + (timing.masuk / 1000).toFixed(1) + ' dtk; pulang: ' + (timing.pulang / 1000).toFixed(1) + ' dtk.');
     });
   } finally {

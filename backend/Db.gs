@@ -131,26 +131,35 @@ function findByKey_(name, keyValue) {
   return findOneBy_(name, keyColumn_(name), keyValue);
 }
 
-/** Menambahkan satu baris. Mengembalikan record beserta `_row`. */
+/**
+ * Menambahkan satu baris. Mengembalikan record beserta `_row`.
+ * Memakai appendRow (atomik di server) agar tidak pernah menimpa baris yang baru saja
+ * ditulis eksekusi lain; posisi baris lalu dicari ulang dengan TextFinder (selalu data terbaru)
+ * dan isinya ditulis ulang dengan format kolom yang benar (tanggal/jam tetap teks).
+ */
 function insertRow_(name, record) {
   return withLock_(() => {
     const sh = getSheet_(name);
     const headers = getHeaders_(name);
+    const key = keyColumn_(name);
+    const keyCol = headers.indexOf(key);
     const formats = headers.map(h => columnFormat_(name, h));
     const values = headers.map((h, i) => toCell_(record[h], formats[i] !== '@'));
-    const nextRow = sh.getLastRow() + 1;
-    if (nextRow > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), 500);
-    const range = sh.getRange(nextRow, 1, 1, headers.length);
+    sh.appendRow(values);
+    const hits = sh.getRange(1, keyCol + 1, sh.getMaxRows(), 1)
+      .createTextFinder(String(record[key])).matchEntireCell(true).matchCase(true).findAll();
+    const row = hits.length ? hits[hits.length - 1].getRow() : sh.getLastRow();
+    const range = sh.getRange(row, 1, 1, headers.length);
     range.setNumberFormats([formats]);
     range.setValues([values]);
-    return Object.assign({}, record, { _row: nextRow });
+    return Object.assign({}, record, { _row: row });
   });
 }
 
 /**
- * Memperbarui sebagian kolom pada baris dengan key tertentu.
- * Pencarian dan penulisan berada dalam lock yang sama sehingga nomor baris
- * tidak bergeser oleh eksekusi lain. Melempar NOT_FOUND bila key tidak ada.
+ * Memperbarui kolom-kolom pada baris dengan key tertentu. Hanya sel yang ada di `patch`
+ * yang ditulis, sehingga nilai lama hasil cache tidak pernah menimpa kolom lain.
+ * Pencarian dan penulisan berada dalam lock yang sama. Melempar NOT_FOUND bila key tidak ada.
  */
 function updateByKey_(name, keyValue, patch) {
   return withLock_(() => {
@@ -159,13 +168,13 @@ function updateByKey_(name, keyValue, patch) {
     const sh = getSheet_(name);
     const headers = getHeaders_(name);
     const key = keyColumn_(name);
-    const merged = Object.assign({}, current, patch, { [key]: current[key] });
-    const formats = headers.map(h => columnFormat_(name, h));
-    const values = headers.map((h, i) => toCell_(merged[h], formats[i] !== '@'));
-    const range = sh.getRange(current._row, 1, 1, headers.length);
-    range.setNumberFormats([formats]);
-    range.setValues([values]);
-    return merged;
+    Object.keys(patch).forEach(h => {
+      const c = headers.indexOf(h);
+      if (h === key || c < 0) return;
+      const fmt = columnFormat_(name, h);
+      sh.getRange(current._row, c + 1).setNumberFormat(fmt).setValue(toCell_(patch[h], fmt !== '@'));
+    });
+    return Object.assign({}, current, patch, { [key]: current[key] });
   });
 }
 

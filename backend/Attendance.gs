@@ -74,6 +74,23 @@ function previousCoordinateAnomaly_(userId, lat, lng) {
   return same ? ['Koordinat persis sama dengan absensi sebelumnya'] : [];
 }
 
+/**
+ * Penanda anti-ganda di CacheService (selalu dibaca langsung dari server, tidak di-cache
+ * per eksekusi seperti nilai sel Spreadsheet). Dipasang di dalam lock setelah absen tersimpan.
+ * jenis: 'in' | 'out'. Berlaku 6 jam (batas CacheService).
+ */
+function attendanceMarkerKey_(attendanceId, jenis) {
+  return 'att_' + jenis + '_' + attendanceId;
+}
+
+function setAttendanceMarker_(attendanceId, jenis, jam) {
+  CacheService.getScriptCache().put(attendanceMarkerKey_(attendanceId, jenis), jam || '1', 21600);
+}
+
+function clearAttendanceMarkers_(attendanceId) {
+  CacheService.getScriptCache().removeAll([attendanceMarkerKey_(attendanceId, 'in'), attendanceMarkerKey_(attendanceId, 'out')]);
+}
+
 function formatAnomali_(label, list) {
   return list.length ? label + ': ' + list.join('; ') : '';
 }
@@ -93,6 +110,10 @@ function performCheckIn_(user, input, now, school, schedule) {
 
   return withLock_(() => {
     const id = attendanceId_(now.tanggal, user.user_id);
+    const marker = CacheService.getScriptCache().get(attendanceMarkerKey_(id, 'in'));
+    if (marker) {
+      throw new AppError('ALREADY_CHECKED_IN', 'Anda sudah absen masuk hari ini pukul ' + marker + ' WIB.');
+    }
     const existing = findByKey_(SHEETS.ABSENSI, id);
     if (existing) {
       if (existing.jam_masuk) {
@@ -116,6 +137,7 @@ function performCheckIn_(user, input, now, school, schedule) {
       created_at: now.waktu,
       updated_at: now.waktu,
     });
+    setAttendanceMarker_(id, 'in', now.jam);
     return publicAttendance_(rec);
   });
 }
@@ -139,6 +161,10 @@ function performCheckOut_(user, input, now, school, schedule) {
   const pulang = formatAnomali_('Pulang', loc.anomalies.concat(previousCoordinateAnomaly_(user.user_id, input.lat, input.lng)));
 
   return withLock_(() => {
+    const marker = CacheService.getScriptCache().get(attendanceMarkerKey_(id, 'out'));
+    if (marker) {
+      throw new AppError('ALREADY_CHECKED_OUT', 'Anda sudah absen pulang hari ini pukul ' + marker + ' WIB.');
+    }
     const current = findByKey_(SHEETS.ABSENSI, id);
     assertCanCheckOut(current); // diperiksa ulang di dalam lock
     const updated = updateByKey_(SHEETS.ABSENSI, id, {
@@ -150,6 +176,7 @@ function performCheckOut_(user, input, now, school, schedule) {
       anomali: [current.anomali, pulang].filter(String).join(' | '),
       updated_at: now.waktu,
     });
+    setAttendanceMarker_(id, 'out', now.jam);
     return publicAttendance_(updated);
   });
 }
