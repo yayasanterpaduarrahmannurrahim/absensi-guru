@@ -508,3 +508,144 @@ function runTahap4Tests() {
 
   finish();
 }
+
+/**
+ * Tahap 5: pengajuan izin/sakit, bukti di Drive, persetujuan, dan Tanpa Keterangan otomatis.
+ * Memakai pengguna fiktif & tanggal tahun 2000. Baris uji dan file bukti uji dihapus di akhir.
+ */
+function runTahap5Tests() {
+  const { test, assert, assertEq, expectError, finish } = createTestRunner_();
+  resetDbCache_();
+
+  const tag = Utilities.getUuid().slice(0, 8).toUpperCase();
+  const guru = { user_id: 'TEST-T5-' + tag, nama_guru: 'Guru Uji Tahap 5', role: ROLES.GURU };
+  const guru2 = { user_id: 'TEST-T5B-' + tag, nama_guru: 'Guru Uji Tahap 5 B', role: ROLES.GURU };
+  const admin = { user_id: 'TEST-ADMIN' };
+  const schedule = { jamMasuk: '07:00', batasTerlambat: '07:15', batasAbsenMasuk: '12:00', jamPulang: '14:00', hariKerja: [1, 2, 3, 4, 5, 6] };
+  const now = { tanggal: '2000-01-03', jam: '08:00:00', hari: 1, waktu: '2000-01-03 08:00:00' };
+  const proofUrls = [];
+  // PNG 1x1 & PDF minimal yang valid.
+  const PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  const PDF_MIN = Utilities.base64Encode('%PDF-1.4\n%âãÏÓ\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF');
+
+  try {
+    test('Tanggal: validasi, tambah hari, hari dalam minggu', () => {
+      assertEq(parseIsoDate_('2000-02-29', 'Tgl'), '2000-02-29', 'kabisat');
+      expectError('VALIDATION', () => parseIsoDate_('2001-02-29', 'Tgl'), 'bukan kabisat');
+      expectError('VALIDATION', () => parseIsoDate_('03-01-2000', 'Tgl'), 'format salah');
+      assertEq(addDays_('2000-01-31', 1), '2000-02-01', 'pergantian bulan');
+      assertEq(dayOfWeek_('2000-01-03'), 1, 'Senin');
+      assertEq(dayOfWeek_('2000-01-09'), 7, 'Minggu');
+      assertEq(daysBetween_('2000-01-03', '2000-01-10'), 7, 'selisih hari');
+    });
+
+    test('Validasi pengajuan', () => {
+      const ok = { jenis: 'Sakit', tanggalMulai: '2000-01-03', tanggalSelesai: '2000-01-04', alasan: 'Demam tinggi' };
+      assertEq(validateLeaveInput_(ok, '2000-01-03').selesai, '2000-01-04', 'valid');
+      assertEq(validateLeaveInput_(Object.assign({}, ok, { tanggalSelesai: '' }), '2000-01-03').selesai, '2000-01-03', 'satu hari');
+      expectError('VALIDATION', () => validateLeaveInput_(Object.assign({}, ok, { jenis: 'Cuti' }), '2000-01-03'), 'jenis');
+      expectError('VALIDATION', () => validateLeaveInput_(Object.assign({}, ok, { tanggalSelesai: '2000-01-02' }), '2000-01-03'), 'selesai < mulai');
+      expectError('VALIDATION', () => validateLeaveInput_(Object.assign({}, ok, { tanggalSelesai: '2000-02-10' }), '2000-01-03'), '> 31 hari');
+      expectError('VALIDATION', () => validateLeaveInput_(Object.assign({}, ok, { tanggalMulai: '1999-12-20', tanggalSelesai: '1999-12-20' }), '2000-01-03'), '> 7 hari lampau');
+      expectError('VALIDATION', () => validateLeaveInput_(Object.assign({}, ok, { alasan: 'sak' }), '2000-01-03'), 'alasan pendek');
+    });
+
+    test('Bukti: PNG & PDF diterima, isi palsu/terlalu besar ditolak', () => {
+      assertEq(readProof_({ mimeType: 'image/png', data: PNG_1PX }).ext, 'png', 'png');
+      assertEq(readProof_({ mimeType: 'application/pdf', data: PDF_MIN }).ext, 'pdf', 'pdf');
+      assertEq(readProof_(null), null, 'tanpa bukti');
+      expectError('VALIDATION', () => readProof_({ mimeType: 'image/jpeg', data: PNG_1PX }), 'PNG mengaku JPEG');
+      expectError('VALIDATION', () => readProof_({ mimeType: 'text/html', data: PNG_1PX }), 'jenis tidak diizinkan');
+      expectError('VALIDATION', () => readProof_({ mimeType: 'application/pdf', data: Utilities.base64Encode('<script>alert(1)</script>') }), 'HTML mengaku PDF');
+      const big = Utilities.base64Encode(Utilities.newBlob('%PDF' + new Array(2700000).join('a')).getBytes());
+      expectError('VALIDATION', () => readProof_({ mimeType: 'application/pdf', data: big }), 'lebih dari 2,5 MB');
+    });
+
+    let leaveA;
+    test('Ajukan sakit dengan bukti → tersimpan di Drive privat; overlap ditolak', () => {
+      const input = validateLeaveInput_({ jenis: 'Sakit', tanggalMulai: '2000-01-07', tanggalSelesai: '2000-01-10', alasan: 'Demam, surat dokter terlampir' }, now.tanggal);
+      leaveA = createLeave_(guru, input, readProof_({ mimeType: 'image/png', data: PNG_1PX }), now);
+      const row = findByKey_(SHEETS.PENGAJUAN, leaveA.submissionId);
+      proofUrls.push(row.bukti_url);
+      assertEq(leaveA.status, STATUS_PENGAJUAN.MENUNGGU, 'status awal');
+      assert(leaveA.hasBukti && !('bukti_url' in leaveA), 'URL Drive tidak dikirim ke frontend');
+      const file = DriveApp.getFileById(fileIdFromUrl_(row.bukti_url));
+      assertEq(file.getSharingAccess(), DriveApp.Access.PRIVATE, 'file bukti privat');
+      const proof = apiAdminGetLeaveProof_({ submissionId: leaveA.submissionId });
+      assertEq(proof.data, PNG_1PX, 'isi bukti terbaca utuh');
+
+      const overlap = validateLeaveInput_({ jenis: 'Izin', tanggalMulai: '2000-01-10', tanggalSelesai: '2000-01-11', alasan: 'Acara keluarga' }, now.tanggal);
+      expectError('OVERLAP', () => createLeave_(guru, overlap, null, now), 'tanggal bertumpuk');
+    });
+
+    test('Batalkan: hanya milik sendiri & berstatus Menunggu', () => {
+      const input = validateLeaveInput_({ jenis: 'Izin', tanggalMulai: '2000-01-04', tanggalSelesai: '2000-01-04', alasan: 'Urusan keluarga' }, now.tanggal);
+      const l = createLeave_(guru, input, null, now);
+      expectError('NOT_FOUND', () => cancelLeave_(guru2, l.submissionId, now), 'milik guru lain');
+      assertEq(cancelLeave_(guru, l.submissionId, now).status, STATUS_PENGAJUAN.DIBATALKAN, 'dibatalkan');
+      expectError('NOT_PENDING', () => cancelLeave_(guru, l.submissionId, now), 'batal dua kali');
+    });
+
+    test('Tolak wajib catatan; pengajuan yang sudah diproses tidak bisa diproses lagi', () => {
+      const input = validateLeaveInput_({ jenis: 'Izin', tanggalMulai: '2000-01-05', tanggalSelesai: '2000-01-05', alasan: 'Keperluan pribadi' }, now.tanggal);
+      const l = createLeave_(guru, input, null, now);
+      expectError('VALIDATION', () => processLeave_(admin, { submissionId: l.submissionId, keputusan: 'Ditolak', catatan: '' }, schedule, now), 'tanpa catatan');
+      const res = processLeave_(admin, { submissionId: l.submissionId, keputusan: 'Ditolak', catatan: 'Tidak ada keterangan jelas' }, schedule, now);
+      assertEq(res.leave.status, STATUS_PENGAJUAN.DITOLAK, 'ditolak');
+      assertEq(findByKey_(SHEETS.ABSENSI, attendanceId_('2000-01-05', guru.user_id)), null, 'ditolak tidak menulis ABSENSI');
+      expectError('NOT_PENDING', () => processLeave_(admin, { submissionId: l.submissionId, keputusan: 'Disetujui' }, schedule, now), 'proses ulang');
+    });
+
+    test('Setujui: hari kerja terisi Sakit, Minggu dilewati, absen yang ada tidak ditimpa, Tanpa Keterangan diganti', () => {
+      // 7 Jan (Jumat) sudah absen masuk; 8 Jan (Sabtu) sudah Tanpa Keterangan; 9 Jan Minggu; 10 Jan (Senin) kosong.
+      insertRow_(SHEETS.ABSENSI, { attendance_id: attendanceId_('2000-01-07', guru.user_id), user_id: guru.user_id, nama_guru: guru.nama_guru, tanggal: '2000-01-07', jam_masuk: '07:01:00', status: 'Hadir' });
+      insertRow_(SHEETS.ABSENSI, { attendance_id: attendanceId_('2000-01-08', guru.user_id), user_id: guru.user_id, nama_guru: guru.nama_guru, tanggal: '2000-01-08', status: STATUS_HADIR.TANPA_KETERANGAN });
+      const res = processLeave_(admin, { submissionId: leaveA.submissionId, keputusan: 'Disetujui', catatan: '' }, schedule, now);
+      assertEq(res.leave.status, STATUS_PENGAJUAN.DISETUJUI, 'disetujui');
+      assertEq(res.applied.diterapkan.join(','), '2000-01-08,2000-01-10', 'tanggal diterapkan');
+      assertEq(res.applied.dilewati.length, 1, 'satu hari dilewati');
+      assertEq(res.applied.dilewati[0].tanggal, '2000-01-07', 'hari yang sudah absen');
+      assertEq(findByKey_(SHEETS.ABSENSI, attendanceId_('2000-01-07', guru.user_id)).status, 'Hadir', 'Hadir tidak ditimpa');
+      assertEq(findByKey_(SHEETS.ABSENSI, attendanceId_('2000-01-08', guru.user_id)).status, 'Sakit', 'Tanpa Keterangan → Sakit');
+      assertEq(findByKey_(SHEETS.ABSENSI, attendanceId_('2000-01-09', guru.user_id)), null, 'Minggu tidak diisi');
+      const senin = findByKey_(SHEETS.ABSENSI, attendanceId_('2000-01-10', guru.user_id));
+      assert(senin.status === 'Sakit' && senin.keterangan.indexOf(leaveA.submissionId) > 0, 'keterangan menyebut ID pengajuan');
+      expectError('HAS_STATUS', () => performCheckIn_(guru, { lat: -6.2088123, lng: 106.8456789, accuracy: 8, samples: [] },
+        { tanggal: '2000-01-10', jam: '07:00:00', hari: 1, waktu: '2000-01-10 07:00:00' },
+        { lat: -6.2088123, lng: 106.8456789, radius: 50, maxAccuracy: 30 }, schedule), 'tidak bisa absen saat Sakit');
+    });
+
+    test('Tanpa Keterangan otomatis: hanya yang belum punya data, tidak ganda bila diulang', () => {
+      // 11 Jan: guru sudah absen, guru2 belum.
+      insertRow_(SHEETS.ABSENSI, { attendance_id: attendanceId_('2000-01-11', guru.user_id), user_id: guru.user_id, nama_guru: guru.nama_guru, tanggal: '2000-01-11', jam_masuk: '07:00:00', status: 'Hadir' });
+      assertEq(markAbsenteesFor_('2000-01-11', [guru, guru2], '12:00', now), 1, 'satu guru ditandai');
+      const r = findByKey_(SHEETS.ABSENSI, attendanceId_('2000-01-11', guru2.user_id));
+      assertEq(r.status, STATUS_HADIR.TANPA_KETERANGAN, 'status');
+      assert(r.keterangan.indexOf('12:00') > 0, 'keterangan menyebut batas');
+      assertEq(markAbsenteesFor_('2000-01-11', [guru, guru2], '12:00', now), 0, 'diulang tidak ganda');
+      assertEq(findByKey_(SHEETS.ABSENSI, attendanceId_('2000-01-11', guru.user_id)).status, 'Hadir', 'yang hadir tetap');
+    });
+
+    test('Izin disetujui belakangan mengganti Tanpa Keterangan', () => {
+      const input = validateLeaveInput_({ jenis: 'Izin', tanggalMulai: '2000-01-11', tanggalSelesai: '2000-01-11', alasan: 'Mengantar anak berobat' }, '2000-01-12');
+      const l = createLeave_(guru2, input, readProof_({ mimeType: 'application/pdf', data: PDF_MIN }), now);
+      proofUrls.push(findByKey_(SHEETS.PENGAJUAN, l.submissionId).bukti_url);
+      processLeave_(admin, { submissionId: l.submissionId, keputusan: 'Disetujui' }, schedule, now);
+      assertEq(findByKey_(SHEETS.ABSENSI, attendanceId_('2000-01-11', guru2.user_id)).status, 'Izin', 'Tanpa Keterangan → Izin');
+    });
+
+    test('API pengajuan wajib login & admin', () => {
+      assertEq(dispatch_({ action: 'submitLeave', payload: {} }, 'POST').error.code, 'SESSION_INVALID', 'submitLeave tanpa sesi');
+      assertEq(dispatch_({ action: 'adminProcessLeave', payload: {} }, 'POST').error.code, 'SESSION_INVALID', 'adminProcessLeave tanpa sesi');
+      assert(ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'autoMarkTanpaKeterangan'),
+        'trigger autoMarkTanpaKeterangan belum terpasang — jalankan installTriggers()');
+    });
+  } finally {
+    const ids = [guru.user_id, guru2.user_id];
+    deleteRowsWhere_(SHEETS.ABSENSI, r => ids.indexOf(r.user_id) >= 0);
+    deleteRowsWhere_(SHEETS.PENGAJUAN, r => ids.indexOf(r.user_id) >= 0);
+    proofUrls.forEach(u => { try { trashProofFile_(u); } catch (e) { /* abaikan */ } });
+  }
+
+  finish();
+}

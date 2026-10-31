@@ -8,13 +8,14 @@
 
 const APP = Object.freeze({
   NAME: 'Absensi Guru',
-  VERSION: '0.4.0',
+  VERSION: '0.5.0',
   TIMEZONE: 'Asia/Jakarta',
   // OAuth Client ID (bukan rahasia; juga dipakai frontend). Token login harus ditujukan ke ID ini.
   GOOGLE_CLIENT_ID: '786435738658-rcbo8rsdafur0u4tfgo6ig4l8j1jh4t4.apps.googleusercontent.com',
   PROP_SPREADSHEET_ID: 'SPREADSHEET_ID',
   LOCK_TIMEOUT_MS: 15000,
-  MAX_REQUEST_BYTES: 100 * 1024,
+  // Cukup untuk bukti izin (foto terkompresi/PDF ≤ 2,5 MB dalam base64).
+  MAX_REQUEST_BYTES: 4 * 1024 * 1024,
 });
 
 const SHEETS = Object.freeze({
@@ -45,6 +46,7 @@ const STATUS_PENGAJUAN = Object.freeze({
   MENUNGGU: 'Menunggu',
   DISETUJUI: 'Disetujui',
   DITOLAK: 'Ditolak',
+  DIBATALKAN: 'Dibatalkan',
 });
 
 /**

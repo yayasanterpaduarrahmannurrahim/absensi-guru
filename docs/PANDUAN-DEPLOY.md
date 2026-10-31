@@ -74,6 +74,23 @@ pensil, pilih **Version: New version**, lalu **Deploy**. Dengan cara ini URL `/e
 
 ---
 
+### 7. Izin tambahan & trigger otomatis (sejak Tahap 5)
+
+1. Di editor, jalankan fungsi **`authorize`** (file `Setup.gs`). Pada dialog izin, klik **Pilih semua**,
+   termasuk Google Drive (untuk menyimpan bukti izin/sakit) dan "jalankan saat Anda tidak ada"
+   (untuk trigger).
+2. Jalankan fungsi **`installTriggers`** (file `Leave.gs`) **satu kali**. Fungsi ini memasang pemicu
+   setiap jam yang menandai *Tanpa Keterangan* bagi guru aktif yang belum absen setelah batas absen
+   masuk dan tidak memiliki izin/sakit yang disetujui. Penandaan dimulai dari hari berikutnya.
+3. Untuk memeriksanya, buka menu **Pemicu** (ikon jam di kiri editor). Harus ada pemicu
+   `autoMarkTanpaKeterangan` dengan jadwal setiap jam.
+
+Bukti izin/sakit tersimpan di folder Drive **"Bukti Izin Absensi Guru"** (privat). Jangan bagikan
+folder ini. Admin melihat bukti melalui aplikasi.
+
+> Hari libur nasional belum dikenali otomatis. Pada hari libur di hari kerja, admin dapat mengubah
+> **Hari kerja** di tab Jam Kerja untuk sementara, atau mengoreksi status dari laporan (Tahap 6–7).
+
 ## Konfigurasi Spreadsheet ID
 
 Spreadsheet ID disimpan di **Script Properties**, bukan di kode, dan tidak pernah dikirim

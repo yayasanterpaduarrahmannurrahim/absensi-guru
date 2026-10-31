@@ -166,7 +166,8 @@ const App = (() => {
     stopLocation();
     stopClock();
     const isAdmin = state.user.role === 'admin';
-    if (!isAdmin) state.tab = 'beranda';
+    const allowed = isAdmin ? ['beranda', 'pengajuan', 'pengguna', 'lokasi', 'jadwal'] : ['beranda', 'izin'];
+    if (!allowed.includes(state.tab)) state.tab = 'beranda';
 
     const tab = (id, icon, label) =>
       `<button class="tab ${state.tab === id ? 'active' : ''}" data-tab="${id}"><i data-lucide="${icon}"></i> ${label}</button>`;
@@ -184,13 +185,14 @@ const App = (() => {
           </button>
         </div>
       </header>
-      ${isAdmin ? `
-        <nav class="tabs" aria-label="Menu">
-          ${tab('beranda', 'house', 'Beranda')}
+      <nav class="tabs" aria-label="Menu">
+        ${tab('beranda', 'house', 'Beranda')}
+        ${isAdmin ? `
+          ${tab('pengajuan', 'file-check', 'Pengajuan')}
           ${tab('pengguna', 'users', 'Pengguna')}
           ${tab('lokasi', 'map-pin', 'Lokasi Sekolah')}
-          ${tab('jadwal', 'clock', 'Jam Kerja')}
-        </nav>` : ''}
+          ${tab('jadwal', 'clock', 'Jam Kerja')}` : tab('izin', 'file-plus', 'Izin / Sakit')}
+      </nav>
       <main class="content" id="view"></main>`;
 
     document.getElementById('btn-logout').onclick = logout;
@@ -201,6 +203,8 @@ const App = (() => {
     if (state.tab === 'pengguna') renderUsersView();
     else if (state.tab === 'lokasi') renderSchoolLocationView();
     else if (state.tab === 'jadwal') renderScheduleView();
+    else if (state.tab === 'pengajuan') Leave.renderAdmin(document.getElementById('view'));
+    else if (state.tab === 'izin') Leave.renderMine(document.getElementById('view'));
     else renderHomeView();
     icons();
   }

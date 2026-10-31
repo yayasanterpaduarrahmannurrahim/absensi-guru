@@ -199,14 +199,37 @@ svg.lucide { width: 18px; height: 18px; flex-shrink: 0; }
 .row-actions { display: flex; gap: 2px; }
 .empty { text-align: center; color: var(--muted); padding: 32px 16px; }
 
+/* ---------- Izin & sakit ---------- */
+.btn-block { width: 100%; }
+.btn-sm { min-height: 38px; padding: 0 12px; font-size: .88rem; }
+.btn-reject { color: var(--red-600); }
+.filters { display: flex; gap: 6px; overflow-x: auto; }
+.leave-card { display: grid; gap: 8px; }
+.leave-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.leave-type { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: .9rem; margin-top: 2px; }
+.leave-reason { margin: 0; white-space: pre-wrap; word-break: break-word; }
+.leave-note { margin: 0; font-size: .9rem; background: var(--bg); padding: 8px 10px; border-radius: 8px; }
+.leave-meta { margin: 0; font-size: .8rem; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.leave-meta svg.lucide { width: 14px; height: 14px; }
+.leave-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.badge-izin { background: #dbeafe; color: #1e40af; }
+.badge-sakit { background: #fce7f3; color: #9d174d; }
+.lv-wait { background: #fef3c7; color: #92400e; }
+.lv-ok { background: var(--green-100); color: var(--green-800); }
+.lv-no { background: var(--red-50); color: #991b1b; }
+.lv-cancel { background: #f3f4f6; color: var(--muted); }
+.proof-img { width: 100%; height: auto; border-radius: 10px; display: block; }
+
 /* ---------- Form & modal ---------- */
 .form { display: grid; gap: 14px; }
 .form label { display: grid; gap: 6px; font-weight: 600; font-size: .9rem; }
-.form input, .form select {
+.form input, .form select, .form textarea {
   min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px;
   background: #fff; font-weight: 400;
 }
-.form input:focus, .form select:focus, .search input:focus {
+.form textarea { padding: 10px 12px; resize: vertical; font: inherit; }
+.form input[type=file] { padding: 10px 12px; }
+.form input:focus, .form select:focus, .form textarea:focus, .search input:focus {
   outline: 2px solid var(--green-600); outline-offset: 0; border-color: transparent;
 }
 .form small { font-weight: 400; color: var(--muted); }

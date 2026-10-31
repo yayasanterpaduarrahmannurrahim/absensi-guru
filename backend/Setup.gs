@@ -65,6 +65,8 @@ function authorize() {
   // Pemanggilan langsung (tanpa try/catch) agar editor memunculkan dialog izin bila belum diberikan.
   UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=cek-izin', { muteHttpExceptions: true });
   SpreadsheetApp.openById(PropertiesService.getScriptProperties().getProperty(APP.PROP_SPREADSHEET_ID));
+  DriveApp.getRootFolder();
+  ScriptApp.getProjectTriggers();
   console.log('Semua izin sudah diberikan: ' + Session.getEffectiveUser().getEmail());
 }
 

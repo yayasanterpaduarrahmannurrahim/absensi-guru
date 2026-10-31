@@ -33,6 +33,13 @@ function getRoutes_() {
     adminGetSchedule: { auth: 'admin', handler: apiAdminGetSchedule_ },
     adminUpdateSchedule: { auth: 'admin', handler: apiAdminUpdateSchedule_ },
 
+    submitLeave: { auth: 'user', handler: apiSubmitLeave_ },
+    myLeaves: { auth: 'user', handler: apiMyLeaves_ },
+    cancelLeave: { auth: 'user', handler: apiCancelLeave_ },
+    adminListLeaves: { auth: 'admin', handler: apiAdminListLeaves_ },
+    adminProcessLeave: { auth: 'admin', handler: apiAdminProcessLeave_ },
+    adminGetLeaveProof: { auth: 'admin', handler: apiAdminGetLeaveProof_ },
+
     adminListUsers: { auth: 'admin', handler: apiAdminListUsers_ },
     adminCreateUser: { auth: 'admin', handler: apiAdminCreateUser_ },
     adminUpdateUser: { auth: 'admin', handler: apiAdminUpdateUser_ },
