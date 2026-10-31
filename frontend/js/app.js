@@ -1,6 +1,6 @@
 /**
- * app.js — Alur utama aplikasi: login Google, tampilan profil, dan
- * Kelola Pengguna (khusus admin).
+ * app.js — Alur utama aplikasi: login Google, beranda (status lokasi GPS & profil),
+ * Kelola Pengguna, dan Lokasi Sekolah (khusus admin).
  */
 const App = (() => {
   const { esc, icons, toast, withLoading, openModal, confirm, initials } = UI;
@@ -9,9 +9,18 @@ const App = (() => {
   const state = {
     school: { schoolName: 'Yayasan Arrahman Nurrahim', schoolLogoUrl: '' },
     user: null,
-    tab: 'profil',
+    tab: 'beranda',
     users: [],
     userSearch: '',
+    loc: {
+      config: null,     // { configured, lat, lng, radius, maxAccuracy }
+      status: 'idle',   // lihat Geo.watch
+      coords: null,
+      samples: [],
+      server: null,     // hasil verifikasi server terakhir
+      stop: null,       // fungsi penghenti pemantauan GPS
+      renderKey: '',
+    },
   };
 
   const ROLE_LABEL = { admin: 'Admin', guru: 'Guru' };
@@ -20,9 +29,16 @@ const App = (() => {
 
   async function init() {
     window.addEventListener('session-expired', e => {
+      stopLocation();
       state.user = null;
       toast(e.detail || 'Sesi berakhir. Silakan login kembali.', 'error');
       renderLogin();
+    });
+
+    // Hemat baterai: hentikan GPS saat aplikasi tidak terlihat.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) stopLocation();
+      else if (state.user && state.tab === 'beranda') startLocation();
     });
 
     loadPublicConfig();
@@ -37,7 +53,7 @@ const App = (() => {
       const { user } = await Api.call('me');
       state.user = user;
       Api.saveSession(Object.assign({}, session, { user }));
-      renderApp();
+      if (state.tab === 'beranda') renderProfileCards();
     } catch (err) {
       if (err.code !== 'SESSION_INVALID') toast(err.message, 'error');
     }
@@ -115,7 +131,7 @@ const App = (() => {
       const result = await Api.call('loginGoogle', { credential: response.credential });
       Api.saveSession({ token: result.token, expiresAt: result.expiresAt, user: result.user });
       state.user = result.user;
-      state.tab = 'profil';
+      state.tab = 'beranda';
       toast('Selamat datang, ' + result.user.nama + '.', 'success');
       renderApp();
     } catch (err) {
@@ -128,19 +144,24 @@ const App = (() => {
   async function logout() {
     const ok = await confirm('Keluar', 'Keluar dari aplikasi di perangkat ini?', 'Keluar');
     if (!ok) return;
+    stopLocation();
     try { await Api.call('logout'); } catch (e) { /* sesi tetap dihapus di perangkat */ }
     Api.clearSession();
     if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
     state.user = null;
+    state.loc.config = null;
     renderLogin();
   }
 
   /* ---------- Kerangka aplikasi ---------- */
 
   function renderApp() {
-    const u = state.user;
-    const isAdmin = u.role === 'admin';
-    if (!isAdmin) state.tab = 'profil';
+    stopLocation();
+    const isAdmin = state.user.role === 'admin';
+    if (!isAdmin) state.tab = 'beranda';
+
+    const tab = (id, icon, label) =>
+      `<button class="tab ${state.tab === id ? 'active' : ''}" data-tab="${id}"><i data-lucide="${icon}"></i> ${label}</button>`;
 
     root().innerHTML = `
       <header class="topbar">
@@ -157,8 +178,9 @@ const App = (() => {
       </header>
       ${isAdmin ? `
         <nav class="tabs" aria-label="Menu">
-          <button class="tab ${state.tab === 'profil' ? 'active' : ''}" data-tab="profil"><i data-lucide="user"></i> Profil</button>
-          <button class="tab ${state.tab === 'pengguna' ? 'active' : ''}" data-tab="pengguna"><i data-lucide="users"></i> Kelola Pengguna</button>
+          ${tab('beranda', 'house', 'Beranda')}
+          ${tab('pengguna', 'users', 'Kelola Pengguna')}
+          ${tab('lokasi', 'map-pin', 'Lokasi Sekolah')}
         </nav>` : ''}
       <main class="content" id="view"></main>`;
 
@@ -168,15 +190,26 @@ const App = (() => {
     });
 
     if (state.tab === 'pengguna') renderUsersView();
-    else renderProfileView();
+    else if (state.tab === 'lokasi') renderSchoolLocationView();
+    else renderHomeView();
     icons();
   }
 
-  /* ---------- Profil ---------- */
+  /* ---------- Beranda: lokasi & profil ---------- */
 
-  function renderProfileView() {
-    const u = state.user;
+  function renderHomeView() {
     document.getElementById('view').innerHTML = `
+      <section class="card loc-card" id="loc-card" aria-live="polite"></section>
+      <div id="profile-cards" class="stack"></div>`;
+    renderProfileCards();
+    startLocation();
+  }
+
+  function renderProfileCards() {
+    const box = document.getElementById('profile-cards');
+    if (!box) return;
+    const u = state.user;
+    box.innerHTML = `
       <section class="card profile">
         <div class="avatar">${esc(initials(u.nama))}</div>
         <div>
@@ -193,6 +226,294 @@ const App = (() => {
           <div><dt><i data-lucide="clock"></i> Login terakhir</dt><dd>${esc(u.lastLogin || '—')} WIB</dd></div>
         </dl>
       </section>`;
+    icons();
+  }
+
+  async function startLocation() {
+    stopLocation();
+    const loc = state.loc;
+    loc.server = null;
+    loc.renderKey = '';
+    if (!loc.config) {
+      loc.status = 'loading-config';
+      renderLocCard();
+      try {
+        loc.config = await Api.call('getLocationConfig');
+      } catch (err) {
+        loc.status = 'config-error';
+        loc.configError = err.message;
+        return renderLocCard();
+      }
+      if (!document.getElementById('loc-card')) return; // pengguna sudah pindah tab
+    }
+    if (!loc.config.configured) {
+      loc.status = 'not-configured';
+      return renderLocCard();
+    }
+    loc.stop = Geo.watch(update => {
+      loc.status = update.status;
+      if (update.coords) {
+        loc.coords = update.coords;
+        loc.samples = update.samples;
+      }
+      renderLocCard();
+    });
+  }
+
+  function stopLocation() {
+    if (state.loc.stop) state.loc.stop();
+    state.loc.stop = null;
+  }
+
+  /** Penilaian lokasi di perangkat (untuk tampilan). Server menilai ulang saat absen. */
+  function localVerdict() {
+    const { config, coords } = state.loc;
+    const distance = Geo.distance(config.lat, config.lng, coords.lat, coords.lng);
+    const accuracyOk = coords.accuracy <= config.maxAccuracy;
+    const withinRadius = distance <= config.radius;
+    return { distance, accuracyOk, withinRadius, valid: accuracyOk && withinRadius };
+  }
+
+  const GPS_HELP = {
+    denied: `
+      <p><strong>Izin lokasi ditolak.</strong> Absensi tidak dapat dilakukan tanpa izin lokasi.</p>
+      <details open><summary>Cara mengizinkan</summary>
+        <ul>
+          <li><strong>Android (Chrome):</strong> ketuk ikon <em>gembok/pengaturan</em> di samping alamat situs → <em>Izin</em> → <em>Lokasi</em> → <em>Izinkan</em>, lalu muat ulang halaman.</li>
+          <li><strong>iPhone (Safari):</strong> buka <em>Pengaturan</em> → <em>Privasi &amp; Keamanan</em> → <em>Layanan Lokasi</em> → <em>Situs Web Safari</em> → <em>Saat Digunakan</em>. Lalu di Safari ketuk <em>aA</em> → <em>Pengaturan Situs Web</em> → <em>Lokasi</em> → <em>Izinkan</em>.</li>
+        </ul>
+      </details>`,
+    unavailable: `
+      <p><strong>GPS tidak aktif atau sinyal lokasi tidak ditemukan.</strong></p>
+      <details open><summary>Cara mengaktifkan GPS</summary>
+        <ul>
+          <li><strong>Android:</strong> tarik panel notifikasi dari atas → aktifkan <em>Lokasi</em>. Pastikan mode akurasi tinggi (<em>Akurasi Lokasi Google</em>) aktif.</li>
+          <li><strong>iPhone:</strong> <em>Pengaturan</em> → <em>Privasi &amp; Keamanan</em> → <em>Layanan Lokasi</em> → aktifkan.</li>
+        </ul>
+        <p>Setelah itu ketuk <em>Perbarui lokasi</em>.</p>
+      </details>`,
+    timeout: `<p><strong>Lokasi belum didapat.</strong> Pastikan GPS aktif, keluar ke area terbuka atau dekat jendela, lalu ketuk <em>Perbarui lokasi</em>.</p>`,
+    unsupported: `<p><strong>Browser ini tidak mendukung GPS.</strong> Gunakan Chrome (Android) atau Safari (iPhone) versi terbaru.</p>`,
+  };
+
+  function renderLocCard() {
+    const card = document.getElementById('loc-card');
+    if (!card) return;
+    const loc = state.loc;
+    const v = loc.status === 'ok' && loc.coords && loc.config && loc.config.configured ? localVerdict() : null;
+
+    // Bila status tidak berubah, cukup perbarui angka agar tombol tidak berkedip.
+    const key = [loc.status, v && v.valid, v && v.accuracyOk, v && v.withinRadius, loc.server && loc.server.at].join('|');
+    if (key === loc.renderKey && v) {
+      document.getElementById('loc-distance').textContent = formatDistance(v.distance);
+      document.getElementById('loc-accuracy').textContent = '±' + Math.round(loc.coords.accuracy) + ' m';
+      return;
+    }
+    loc.renderKey = key;
+
+    let tone = 'neutral', icon = 'loader', title = '', body = '';
+    switch (loc.status) {
+      case 'loading-config':
+      case 'locating':
+        title = 'Mengambil lokasi GPS…';
+        body = '<p class="muted">Pastikan GPS aktif. Proses ini bisa memakan waktu beberapa detik.</p>';
+        break;
+      case 'config-error':
+        tone = 'bad'; icon = 'triangle-alert'; title = 'Gagal memuat pengaturan lokasi';
+        body = `<p>${esc(loc.configError)}</p>`;
+        break;
+      case 'not-configured':
+        tone = 'warn'; icon = 'map-pin-off'; title = 'Lokasi sekolah belum diatur';
+        body = '<p>Admin perlu mengatur titik lokasi sekolah sebelum absensi dapat dilakukan.</p>';
+        break;
+      case 'denied':
+      case 'unavailable':
+      case 'timeout':
+      case 'unsupported':
+        tone = 'bad'; icon = 'map-pin-off'; title = 'Lokasi tidak tersedia';
+        body = GPS_HELP[loc.status];
+        break;
+      case 'ok':
+        if (!v.accuracyOk) {
+          tone = 'warn'; icon = 'satellite-dish'; title = 'Akurasi GPS rendah';
+          body = `<p>Akurasi saat ini lebih buruk dari batas ±${esc(loc.config.maxAccuracy)} m. Pindah ke area terbuka atau dekat jendela, lalu tunggu beberapa detik.</p>`;
+        } else if (!v.withinRadius) {
+          tone = 'bad'; icon = 'map-pin-x'; title = 'Di luar area sekolah';
+          body = `<p>Absensi hanya dapat dilakukan dalam radius ${esc(loc.config.radius)} m dari titik sekolah.</p>`;
+        } else {
+          tone = 'good'; icon = 'map-pin-check'; title = 'Lokasi valid — di dalam area sekolah';
+          body = '';
+        }
+        break;
+      default:
+        title = 'Menyiapkan lokasi…';
+    }
+
+    const metrics = v ? `
+      <div class="loc-metrics">
+        <div><span class="muted">Jarak dari sekolah</span><strong id="loc-distance">${formatDistance(v.distance)}</strong></div>
+        <div><span class="muted">Akurasi GPS</span><strong id="loc-accuracy">±${Math.round(loc.coords.accuracy)} m</strong></div>
+        <div><span class="muted">Radius</span><strong>${esc(loc.config.radius)} m</strong></div>
+      </div>` : '';
+
+    const server = loc.server ? `
+      <div class="alert ${loc.server.valid ? 'alert-success' : 'alert-error'}">
+        <strong>Verifikasi server (${esc(loc.server.at)}):</strong> ${esc(loc.server.message)}
+      </div>` : '';
+
+    const canRetry = ['ok', 'denied', 'unavailable', 'timeout', 'config-error'].includes(loc.status);
+    card.className = 'card loc-card tone-' + tone;
+    card.innerHTML = `
+      <div class="loc-head">
+        <div class="loc-icon">${tone === 'neutral' ? '<span class="spinner spinner-dark"></span>' : `<i data-lucide="${icon}"></i>`}</div>
+        <div><span class="muted loc-label">Status lokasi</span><h2>${esc(title)}</h2></div>
+      </div>
+      ${metrics}
+      <div class="loc-body">${body}</div>
+      ${server}
+      <div class="loc-actions">
+        ${canRetry ? '<button class="btn btn-ghost" id="btn-loc-refresh"><i data-lucide="refresh-cw"></i> Perbarui lokasi</button>' : ''}
+        ${v ? '<button class="btn btn-primary" id="btn-loc-verify"><i data-lucide="shield-check"></i> Verifikasi ke server</button>' : ''}
+      </div>`;
+
+    const refresh = document.getElementById('btn-loc-refresh');
+    if (refresh) refresh.onclick = () => {
+      if (loc.status === 'config-error') loc.config = null;
+      startLocation();
+    };
+    const verify = document.getElementById('btn-loc-verify');
+    if (verify) verify.onclick = () => verifyLocation(verify);
+    icons();
+  }
+
+  function formatDistance(m) {
+    return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(2).replace('.', ',') + ' km';
+  }
+
+  /** Meminta server menilai lokasi terkini (tanpa menyimpan absensi). */
+  async function verifyLocation(button) {
+    const { coords, samples } = state.loc;
+    await withLoading(button, async () => {
+      try {
+        const result = await Api.call('checkLocation', {
+          latitude: coords.lat, longitude: coords.lng, accuracy: coords.accuracy, samples,
+        });
+        state.loc.server = Object.assign(result, {
+          at: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        });
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    });
+    renderLocCard();
+  }
+
+  /* ---------- Lokasi Sekolah (admin) ---------- */
+
+  async function renderSchoolLocationView() {
+    const view = document.getElementById('view');
+    view.innerHTML = '<div class="card empty"><span class="spinner spinner-dark"></span></div>';
+    let cfg;
+    try {
+      cfg = await Api.call('getLocationConfig');
+      state.loc.config = cfg;
+    } catch (err) {
+      view.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
+      return;
+    }
+    if (state.tab !== 'lokasi') return;
+
+    view.innerHTML = `
+      <section class="card">
+        <h2 class="card-title">Titik Lokasi Sekolah</h2>
+        <p class="muted">Cara paling akurat: berdiri di <strong>titik tengah area sekolah</strong> (di luar ruangan),
+          lalu ketuk <em>Gunakan lokasi saya sekarang</em>. Atau salin koordinat dari Google Maps.</p>
+        <form id="loc-form" class="form" novalidate>
+          <button type="button" class="btn btn-ghost" id="btn-use-gps"><i data-lucide="crosshair"></i> Gunakan lokasi saya sekarang</button>
+          <p id="gps-note" class="muted small-note" hidden></p>
+          <div class="form-row">
+            <label>Latitude
+              <input name="latitude" inputmode="decimal" autocomplete="off" placeholder="-6.2088123" value="${cfg.configured ? esc(cfg.lat) : ''}">
+            </label>
+            <label>Longitude
+              <input name="longitude" inputmode="decimal" autocomplete="off" placeholder="106.8456789" value="${cfg.configured ? esc(cfg.lng) : ''}">
+            </label>
+          </div>
+          <a id="maps-link" class="small-link" target="_blank" rel="noopener" hidden><i data-lucide="external-link"></i> Periksa titik di Google Maps</a>
+          <div class="form-row">
+            <label>Radius absensi (meter)
+              <input name="radius" type="number" inputmode="numeric" min="10" max="1000" value="${esc(cfg.radius)}">
+            </label>
+            <label>Batas akurasi GPS (meter)
+              <input name="maxAccuracy" type="number" inputmode="numeric" min="5" max="100" value="${esc(cfg.maxAccuracy)}">
+            </label>
+          </div>
+          <small class="muted">Radius default 50 m. Batas akurasi: absensi ditolak bila GPS HP lebih buruk dari nilai ini (default 30 m).</small>
+          <div id="loc-form-error" class="alert alert-error" hidden></div>
+          <button type="submit" class="btn btn-primary"><i data-lucide="save"></i> Simpan Lokasi</button>
+        </form>
+      </section>`;
+    icons();
+
+    const form = document.getElementById('loc-form');
+    const mapsLink = document.getElementById('maps-link');
+    const updateMapsLink = () => {
+      const lat = form.latitude.value.trim().replace(',', '.');
+      const lng = form.longitude.value.trim().replace(',', '.');
+      const ok = lat && lng && isFinite(lat) && isFinite(lng);
+      mapsLink.hidden = !ok;
+      if (ok) mapsLink.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(lat + ',' + lng);
+    };
+    form.latitude.oninput = form.longitude.oninput = updateMapsLink;
+    updateMapsLink();
+
+    document.getElementById('btn-use-gps').onclick = e => useCurrentPositionForSchool(e.currentTarget, form, updateMapsLink);
+
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const errBox = document.getElementById('loc-form-error');
+      errBox.hidden = true;
+      await withLoading(form.querySelector('[type=submit]'), async () => {
+        try {
+          const saved = await Api.call('adminUpdateLocation', {
+            latitude: form.latitude.value, longitude: form.longitude.value,
+            radius: form.radius.value, maxAccuracy: form.maxAccuracy.value,
+          });
+          state.loc.config = saved;
+          form.latitude.value = saved.lat;
+          form.longitude.value = saved.lng;
+          updateMapsLink();
+          toast('Lokasi sekolah disimpan.', 'success');
+        } catch (err) {
+          errBox.textContent = err.message;
+          errBox.hidden = false;
+        }
+      });
+    };
+  }
+
+  async function useCurrentPositionForSchool(button, form, onChange) {
+    const note = document.getElementById('gps-note');
+    note.hidden = false;
+    note.textContent = 'Mengambil lokasi terbaik selama maksimal 15 detik… tetap diam di tempat.';
+    await withLoading(button, async () => {
+      try {
+        const p = await Geo.bestPosition(15000, 8);
+        form.latitude.value = p.lat.toFixed(7);
+        form.longitude.value = p.lng.toFixed(7);
+        onChange();
+        note.textContent = `Lokasi didapat dengan akurasi ±${Math.round(p.accuracy)} m.` +
+          (p.accuracy > 15 ? ' Akurasi kurang baik — sebaiknya ulangi di area terbuka.' : ' Periksa di Google Maps, lalu Simpan.');
+      } catch (err) {
+        const messages = {
+          denied: 'Izin lokasi ditolak. Izinkan akses lokasi untuk situs ini lalu coba lagi.',
+          unavailable: 'GPS tidak aktif. Aktifkan Lokasi di HP lalu coba lagi.',
+          timeout: 'Lokasi belum didapat. Coba lagi di area terbuka.',
+          unsupported: 'Browser ini tidak mendukung GPS.',
+        };
+        note.textContent = messages[err.status] || 'Gagal mengambil lokasi.';
+      }
+    });
   }
 
   /* ---------- Kelola Pengguna (admin) ---------- */
@@ -220,7 +541,8 @@ const App = (() => {
       state.users = await Api.call('adminListUsers');
       renderUserList();
     } catch (err) {
-      document.getElementById('user-list').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
+      const list = document.getElementById('user-list');
+      if (list) list.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
     }
   }
 

@@ -23,6 +23,10 @@ function getRoutes_() {
     logout: { auth: 'user', handler: apiLogout_ },
     me: { auth: 'user', handler: apiMe_ },
 
+    getLocationConfig: { auth: 'user', handler: apiGetLocationConfig_ },
+    checkLocation: { auth: 'user', handler: apiCheckLocation_ },
+    adminUpdateLocation: { auth: 'admin', handler: apiAdminUpdateLocation_ },
+
     adminListUsers: { auth: 'admin', handler: apiAdminListUsers_ },
     adminCreateUser: { auth: 'admin', handler: apiAdminCreateUser_ },
     adminUpdateUser: { auth: 'admin', handler: apiAdminUpdateUser_ },

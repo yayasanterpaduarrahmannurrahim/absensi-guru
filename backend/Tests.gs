@@ -275,3 +275,111 @@ function runTahap2Tests() {
 
   finish();
 }
+
+/** Tahap 3: perhitungan jarak, validasi radius & akurasi, deteksi anomali, pengaturan lokasi. */
+function runTahap3Tests() {
+  const { test, assert, assertEq, expectError, finish } = createTestRunner_();
+  resetDbCache_();
+
+  // Titik sekolah fiktif khusus pengujian (tidak disimpan).
+  const school = { lat: -6.2088123, lng: 106.8456789, radius: 50, maxAccuracy: 30 };
+  const north = meters => school.lat + meters / 111195.08; // geser ke utara sejauh N meter
+  const near = (a, b, tol) => Math.abs(a - b) <= tol;
+  const sample = (lat, lng, accuracy, t) => ({ lat: lat, lng: lng, accuracy: accuracy, t: t });
+
+  test('Haversine: 0.00045° lintang ≈ 50,04 m; Monas–Bundaran HI ≈ 2,22 km', () => {
+    assert(near(haversineMeters_(0, 0, 0.00045, 0), 50.04, 0.05), 'jarak 0.00045°');
+    assertEq(haversineMeters_(school.lat, school.lng, school.lat, school.lng), 0, 'titik sama');
+    const monasHi = haversineMeters_(-6.1753924, 106.8271528, -6.1949389, 106.8230356);
+    assert(near(monasHi, 2221, 30), 'Monas–Bundaran HI: ' + Math.round(monasHi));
+  });
+
+  test('Di dalam radius & akurasi baik = valid', () => {
+    const r = analyzeLocation_({ lat: north(30), lng: school.lng, accuracy: 12.3456, samples: [] }, school);
+    assert(r.valid && r.withinRadius && r.accuracyOk, 'harus valid');
+    assert(near(r.distance, 30, 0.2), 'jarak ±30 m, didapat ' + r.distance);
+    assertEq(r.accuracy, 12.3, 'akurasi dibulatkan');
+  });
+
+  test('Batas radius: 49,5 m valid, 50,5 m ditolak', () => {
+    assert(analyzeLocation_({ lat: north(49.5), lng: school.lng, accuracy: 10.5, samples: [] }, school).valid, '49,5 m');
+    const out = analyzeLocation_({ lat: north(50.5), lng: school.lng, accuracy: 10.5, samples: [] }, school);
+    assert(!out.valid && !out.withinRadius && out.accuracyOk, '50,5 m harus ditolak');
+    assert(out.message.indexOf('radius 50 m') >= 0, 'pesan menyebut radius');
+  });
+
+  test('Akurasi lebih dari 30 m ditolak walau di dalam radius', () => {
+    const r = analyzeLocation_({ lat: north(5), lng: school.lng, accuracy: 35.2, samples: [] }, school);
+    assert(!r.valid && !r.accuracyOk && r.withinRadius, 'akurasi buruk harus ditolak');
+    assert(r.message.indexOf('Akurasi GPS') === 0, 'pesan akurasi');
+  });
+
+  test('Input lokasi tidak valid ditolak', () => {
+    expectError('VALIDATION', () => readLocationInput_({ latitude: 100, longitude: 106, accuracy: 10 }), 'lat > 90');
+    expectError('VALIDATION', () => readLocationInput_({ latitude: -6.2, longitude: 'abc', accuracy: 10 }), 'lng bukan angka');
+    expectError('VALIDATION', () => readLocationInput_({ latitude: -6.2, longitude: 106.8 }), 'akurasi kosong');
+    expectError('VALIDATION', () => readLocationInput_({ latitude: true, longitude: 106.8, accuracy: 5 }), 'boolean');
+    expectError('VALIDATION', () => readLocationInput_({ latitude: -6.2, longitude: 106.8, accuracy: 5, samples: [{ lat: 'x' }] }), 'sampel rusak');
+    assertEq(readLocationInput_({ latitude: -6.2, longitude: 106.8, accuracy: 5, samples: new Array(25).fill(sample(-6.2, 106.8, 5, 0)) }).samples.length, 10, 'maksimal 10 sampel');
+  });
+
+  test('Lokasi wajar tidak ditandai anomali', () => {
+    const lat = north(20), lng = school.lng;
+    const samples = [sample(lat + 0.00002, lng - 0.00001, 14.2, 0), sample(lat - 0.00001, lng + 0.00002, 11.8, 1500), sample(lat, lng, 9.6, 3100)];
+    const r = analyzeLocation_({ lat: lat, lng: lng, accuracy: 9.6, samples: samples }, school);
+    assertEq(r.anomalies.length, 0, 'anomali: ' + r.anomalies.join('; '));
+  });
+
+  test('Anomali: akurasi tidak wajar & koordinat presisi rendah', () => {
+    const a = detectLocationAnomalies_({ lat: north(10), lng: school.lng, accuracy: 0.5, samples: [] });
+    assert(a.some(x => x.indexOf('Akurasi GPS tidak wajar') === 0), 'akurasi ≤ 1 m');
+    const b = detectLocationAnomalies_({ lat: -6.2088, lng: 106.8457, accuracy: 10, samples: [] });
+    assert(b.some(x => x.indexOf('presisi rendah') >= 0), 'presisi rendah');
+  });
+
+  test('Anomali: pembacaan identik sempurna (pola fake GPS)', () => {
+    const lat = north(10), lng = school.lng;
+    const s = [sample(lat, lng, 5, 0), sample(lat, lng, 5, 1000), sample(lat, lng, 5, 2000)];
+    const a = detectLocationAnomalies_({ lat: lat, lng: lng, accuracy: 5, samples: s });
+    assert(a.some(x => x.indexOf('identik') >= 0), 'identik');
+  });
+
+  test('Anomali: lompatan lokasi mustahil & lokasi kiriman berbeda dari sampel', () => {
+    const lng = school.lng;
+    const s = [sample(north(5000), lng, 10, 0), sample(north(10), lng, 10, 2000)];
+    const a = detectLocationAnomalies_({ lat: north(10), lng: lng, accuracy: 10, samples: s });
+    assert(a.some(x => x.indexOf('Lompatan lokasi') === 0), 'lompatan 5 km/2 detik');
+    const b = detectLocationAnomalies_({ lat: north(10), lng: lng, accuracy: 10, samples: [sample(north(900), lng, 10, 0)] });
+    assert(b.some(x => x.indexOf('berbeda jauh') >= 0), 'kiriman ≠ sampel terakhir');
+  });
+
+  test('Validasi pengaturan lokasi admin', () => {
+    expectError('VALIDATION', () => validateLocationSettings_({ latitude: -6.2, longitude: 106.8456789, radius: 50, maxAccuracy: 30 }), 'presisi rendah');
+    expectError('VALIDATION', () => validateLocationSettings_({ latitude: -6.2088123, longitude: 106.8456789, radius: 5, maxAccuracy: 30 }), 'radius < 10');
+    expectError('VALIDATION', () => validateLocationSettings_({ latitude: -6.2088123, longitude: 106.8456789, radius: 50, maxAccuracy: 500 }), 'akurasi > 100');
+    const v = validateLocationSettings_({ latitude: '-6,20881234', longitude: '106.8456789', radius: '50', maxAccuracy: 30 });
+    assertEq(v.school_latitude, '-6.2088123', 'koma desimal & 7 digit');
+  });
+
+  test('Simpan pengaturan lokasi lalu kembalikan nilai asli', () => {
+    const keys = ['school_latitude', 'school_longitude', 'radius_meter', 'max_accuracy_meter'];
+    invalidateSettingsCache_();
+    const original = {};
+    keys.forEach(k => { original[k] = getSettings_()[k] || ''; });
+    try {
+      const cfg = apiAdminUpdateLocation_({ latitude: -6.2088123, longitude: 106.8456789, radius: 75, maxAccuracy: 25 },
+        { session: { user: { user_id: 'TEST' } } });
+      assert(cfg.configured, 'harus terkonfigurasi');
+      assertEq(cfg.lat, -6.2088123, 'latitude negatif tersimpan utuh');
+      assertEq(cfg.radius, 75, 'radius');
+      const check = apiCheckLocation_({ latitude: -6.2088123 + 60 / 111195.08, longitude: 106.8456789, accuracy: 10.5 });
+      assert(check.valid && !('anomalies' in check), 'checkLocation 60 m dalam radius 75 m, tanpa daftar anomali');
+    } finally {
+      setSettings_(original);
+    }
+    invalidateSettingsCache_();
+    keys.forEach(k => assertEq(getSettings_()[k] || '', original[k], 'nilai asli ' + k));
+  });
+
+  finish();
+}

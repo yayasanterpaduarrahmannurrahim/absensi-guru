@@ -27,6 +27,17 @@ function vEnum_(value, label, allowed, opts) {
   return s;
 }
 
+/** Validasi angka (number atau string angka) dalam rentang [min, max]. */
+function vNumber_(value, label, min, max) {
+  if (value === undefined || value === null || value === '' || typeof value === 'boolean') {
+    throw new AppError('VALIDATION', label + ' wajib diisi.');
+  }
+  const n = typeof value === 'number' ? value : Number(String(value).trim().replace(',', '.'));
+  if (!isFinite(n)) throw new AppError('VALIDATION', label + ' harus berupa angka.');
+  if (n < min || n > max) throw new AppError('VALIDATION', label + ' harus antara ' + min + ' dan ' + max + '.');
+  return n;
+}
+
 /** Validasi email; hasil selalu huruf kecil. */
 function vEmail_(value, label) {
   return vString_(value, label, {

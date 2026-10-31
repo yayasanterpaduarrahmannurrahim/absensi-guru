@@ -89,18 +89,24 @@ Jangan bagikan spreadsheet kepada guru. Backend mengaksesnya atas nama pemilik.
 
 ## Mendapatkan koordinat sekolah
 
+**Cara paling akurat (dari aplikasi):** login sebagai admin di HP, buka tab **Lokasi Sekolah**,
+berdiri di titik tengah area sekolah di luar ruangan, lalu ketuk **Gunakan lokasi saya sekarang**.
+Aplikasi mengambil pembacaan GPS terbaik selama maksimal 15 detik. Periksa titiknya lewat
+link **Periksa titik di Google Maps**, lalu ketuk **Simpan Lokasi**.
+
+**Cara alternatif (Google Maps):**
+
 1. Buka Google Maps di HP atau PC.
 2. Tekan lama (HP) atau klik kanan (PC) **titik tengah area sekolah**, misalnya halaman
    utama atau ruang guru.
 3. Koordinat seperti `-6.2088123, 106.8456789` akan muncul. Angka pertama adalah
    **latitude**, angka kedua **longitude**.
-4. Untuk sementara, isi koordinat di sheet SETTINGS pada baris `school_latitude` dan
-   `school_longitude`. Mulai Tahap 6, koordinat bisa diubah dari halaman Pengaturan Admin.
-   Gunakan titik desimal, bukan koma.
+4. Salin kedua angka itu ke tab **Lokasi Sekolah** di aplikasi admin, lalu simpan.
+   Koordinat minimal harus memiliki 5 angka di belakang titik.
 
 ## Mengatur radius 50 meter
 
-Baris `radius_meter` di SETTINGS berisi `50` secara default. Pilih titik pusat yang
+Radius diatur di tab **Lokasi Sekolah** (default `50`, rentang 10–1000 meter). Pilih titik pusat yang
 benar-benar berada di tengah area sekolah. Jika gedung sekolah lebih panjang dari 100 meter,
 naikkan radius secukupnya, karena GPS di dalam gedung bisa meleset 10–30 meter.
 Baris `max_accuracy_meter` (default `30`) menentukan akurasi GPS terburuk yang masih diterima.

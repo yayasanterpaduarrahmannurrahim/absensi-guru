@@ -23,6 +23,24 @@ function invalidateSettingsCache_() {
   CacheService.getScriptCache().remove(SETTINGS_CACHE_KEY);
 }
 
+/**
+ * Menyimpan beberapa pengaturan sekaligus ({ key: value }). Key baru ditambahkan.
+ * Mengembalikan nilai sebelum perubahan (untuk audit log).
+ */
+function setSettings_(values) {
+  return withLock_(() => {
+    const before = {};
+    Object.keys(values).forEach(key => {
+      const row = findByKey_(SHEETS.SETTINGS, key);
+      before[key] = row ? String(row.value) : null;
+      if (row) updateByKey_(SHEETS.SETTINGS, key, { value: String(values[key]) });
+      else insertRow_(SHEETS.SETTINGS, { key: key, value: String(values[key]), keterangan: '' });
+    });
+    invalidateSettingsCache_();
+    return before;
+  });
+}
+
 /** Nilai pengaturan bertipe angka; null bila kosong atau tidak valid. */
 function getSettingNumber_(key) {
   const raw = getSettings_()[key];

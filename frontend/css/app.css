@@ -123,6 +123,39 @@ svg.lucide { width: 18px; height: 18px; flex-shrink: 0; }
 .badge-guru { background: var(--green-100); color: var(--green-800); }
 .badge-off { background: var(--red-50); color: var(--red-600); }
 
+/* ---------- Kartu lokasi GPS ---------- */
+.stack { display: grid; gap: 12px; }
+.card-title { margin: 0 0 6px; font-size: 1.1rem; }
+.loc-card { border-left: 5px solid var(--line); display: grid; gap: 12px; }
+.loc-card.tone-good { border-left-color: var(--green-600); }
+.loc-card.tone-warn { border-left-color: var(--amber-600); }
+.loc-card.tone-bad { border-left-color: var(--red-600); }
+.loc-head { display: flex; align-items: center; gap: 12px; }
+.loc-head h2 { margin: 0; font-size: 1.05rem; }
+.loc-label { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
+.loc-icon {
+  width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; flex-shrink: 0;
+  background: #f3f4f6; color: var(--muted);
+}
+.loc-icon svg.lucide { width: 24px; height: 24px; }
+.tone-good .loc-icon { background: var(--green-100); color: var(--green-700); }
+.tone-warn .loc-icon { background: #fef3c7; color: var(--amber-600); }
+.tone-bad .loc-icon { background: var(--red-50); color: var(--red-600); }
+.loc-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.loc-metrics div { background: var(--bg); border-radius: 10px; padding: 10px; display: grid; gap: 2px; }
+.loc-metrics span { font-size: .75rem; }
+.loc-metrics strong { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.loc-body p { margin: 0 0 8px; }
+.loc-body p:last-child { margin-bottom: 0; }
+.loc-body details { font-size: .9rem; }
+.loc-body summary { cursor: pointer; font-weight: 600; color: var(--green-700); margin-bottom: 6px; }
+.loc-body ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.loc-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.loc-actions .btn { flex: 1 1 160px; }
+.alert-success { background: var(--green-50); color: var(--green-800); border: 1px solid var(--green-100); }
+.small-note { margin: 0; font-size: .85rem; }
+.small-link { display: inline-flex; align-items: center; gap: 4px; }
+
 /* ---------- Kelola Pengguna ---------- */
 .toolbar { display: flex; gap: 8px; }
 .search { flex: 1; position: relative; }

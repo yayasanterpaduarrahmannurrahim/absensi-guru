@@ -52,6 +52,22 @@ function setup() {
   });
 }
 
+/**
+ * Meminta ulang SEMUA izin yang tercantum di appsscript.json.
+ * Jalankan dari editor bila ada izin yang terlewat (Google memakai izin per item,
+ * sehingga script bisa berjalan walau sebagian izin tidak dicentang).
+ * Web App berjalan atas nama pemilik, jadi tanpa izin lengkap login guru akan gagal.
+ */
+function authorize() {
+  if (typeof ScriptApp.requireAllScopes === 'function') {
+    ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);
+  }
+  // Pemanggilan langsung (tanpa try/catch) agar editor memunculkan dialog izin bila belum diberikan.
+  UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=cek-izin', { muteHttpExceptions: true });
+  SpreadsheetApp.openById(PropertiesService.getScriptProperties().getProperty(APP.PROP_SPREADSHEET_ID));
+  console.log('Semua izin sudah diberikan: ' + Session.getEffectiveUser().getEmail());
+}
+
 /** Memastikan sheet ada, header lengkap, format kolom benar, dan header bergaya. */
 function ensureSheet_(ss, name, schema) {
   const sh = ss.getSheetByName(name) || ss.insertSheet(name);
