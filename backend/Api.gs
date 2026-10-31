@@ -27,6 +27,10 @@ function getRoutes_() {
     checkLocation: { auth: 'user', handler: apiCheckLocation_ },
     adminUpdateLocation: { auth: 'admin', handler: apiAdminUpdateLocation_ },
 
+    getToday: { auth: 'user', handler: apiGetToday_ },
+    checkIn: { auth: 'user', handler: apiCheckIn_ },
+    checkOut: { auth: 'user', handler: apiCheckOut_ },
+
     adminListUsers: { auth: 'admin', handler: apiAdminListUsers_ },
     adminCreateUser: { auth: 'admin', handler: apiAdminCreateUser_ },
     adminUpdateUser: { auth: 'admin', handler: apiAdminUpdateUser_ },

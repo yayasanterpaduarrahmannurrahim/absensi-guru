@@ -94,15 +94,20 @@ function findRowsBy_(name, column, value) {
   if (col < 0) throw new Error('Kolom ' + column + ' tidak ada di sheet ' + name);
   const lastRow = sh.getLastRow();
   if (lastRow < 2 || value === '' || value === null || value === undefined) return [];
-  const cells = sh.getRange(2, col + 1, lastRow - 1, 1)
+  const rowNumbers = sh.getRange(2, col + 1, lastRow - 1, 1)
     .createTextFinder(String(value))
     .matchEntireCell(true)
     .matchCase(true)
-    .findAll();
-  return cells.map(c => {
-    const r = c.getRow();
-    return rowToObject_(headers, sh.getRange(r, 1, 1, headers.length).getValues()[0], r);
-  });
+    .findAll()
+    .map(c => c.getRow());
+  // Sedikit hasil: baca per baris. Banyak hasil (mis. riwayat satu guru): baca sekali lalu saring.
+  if (rowNumbers.length <= 10) {
+    return rowNumbers.map(r => rowToObject_(headers, sh.getRange(r, 1, 1, headers.length).getValues()[0], r));
+  }
+  const first = rowNumbers[0];
+  const last = rowNumbers[rowNumbers.length - 1];
+  const block = sh.getRange(first, 1, last - first + 1, headers.length).getValues();
+  return rowNumbers.map(r => rowToObject_(headers, block[r - first], r));
 }
 
 function findOneBy_(name, column, value) {

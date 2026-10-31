@@ -383,3 +383,115 @@ function runTahap3Tests() {
 
   finish();
 }
+
+/**
+ * Tahap 4: absen masuk & pulang dengan waktu dan lokasi buatan.
+ * Memakai pengguna fiktif (tanpa baris di USERS) dan tanggal tahun 2000; baris ABSENSI uji dihapus di akhir.
+ */
+function runTahap4Tests() {
+  const { test, assert, assertEq, expectError, finish } = createTestRunner_();
+  resetDbCache_();
+
+  const user = { user_id: 'TEST-T4-' + Utilities.getUuid().slice(0, 8).toUpperCase(), nama_guru: 'Guru Uji Tahap 4' };
+  const school = { lat: -6.2088123, lng: 106.8456789, radius: 50, maxAccuracy: 30 };
+  const schedule = { jamMasuk: '07:00', batasTerlambat: '07:15', batasAbsenMasuk: '12:00', jamPulang: '14:00', hariKerja: [1, 2, 3, 4, 5, 6] };
+  // 3 Januari 2000 = Senin.
+  const at = (tanggal, jam, hari) => ({ tanggal: tanggal, jam: jam, hari: hari, waktu: tanggal + ' ' + jam });
+  let jitter = 0;
+  // Lokasi N meter di utara titik sekolah; jitter kecil agar tiap panggilan berbeda seperti GPS asli.
+  const loc = (meters, accuracy, samples) => ({
+    lat: school.lat + meters / 111195.08 + (++jitter) * 1.3e-7,
+    lng: school.lng + jitter * 1.1e-7,
+    accuracy: accuracy,
+    samples: samples || [],
+  });
+
+  try {
+    test('Absen masuk tepat waktu = Hadir; data tersimpan benar', () => {
+      const input = loc(20, 9.5);
+      const r = performCheckIn_(user, input, at('2000-01-03', '07:05:12', 1), school, schedule);
+      assertEq(r.status, STATUS_HADIR.HADIR, 'status');
+      assertEq(r.jamMasuk, '07:05:12', 'jam masuk dari server');
+      const row = findByKey_(SHEETS.ABSENSI, attendanceId_('2000-01-03', user.user_id));
+      assertEq(row.tanggal, '2000-01-03', 'tanggal tetap teks');
+      assertEq(row.latitude_masuk, input.lat, 'latitude utuh');
+      assert(Math.abs(row.jarak_masuk - 20) < 1, 'jarak ±20 m, didapat ' + row.jarak_masuk);
+      assertEq(row.accuracy_masuk, 9.5, 'akurasi');
+      assertEq(row.anomali, '', 'tanpa anomali');
+      assert(!('anomali' in r), 'anomali tidak dikirim ke guru');
+    });
+
+    test('Absen masuk ganda ditolak', () => {
+      expectError('ALREADY_CHECKED_IN', () => performCheckIn_(user, loc(10, 8), at('2000-01-03', '07:30:00', 1), school, schedule), 'masuk kedua');
+      assertEq(findRowsBy_(SHEETS.ABSENSI, 'attendance_id', attendanceId_('2000-01-03', user.user_id)).length, 1, 'tetap satu baris');
+    });
+
+    test('Absen pulang: terlalu awal, di luar radius, berhasil, lalu ganda ditolak', () => {
+      expectError('TOO_EARLY', () => performCheckOut_(user, loc(10, 8), at('2000-01-03', '13:59:59', 1), school, schedule), 'sebelum 14:00');
+      expectError('LOCATION_INVALID', () => performCheckOut_(user, loc(80, 8), at('2000-01-03', '14:05:00', 1), school, schedule), 'di luar radius');
+      const r = performCheckOut_(user, loc(15, 8), at('2000-01-03', '14:05:00', 1), school, schedule);
+      assertEq(r.jamPulang, '14:05:00', 'jam pulang');
+      assertEq(r.jamMasuk, '07:05:12', 'jam masuk tidak berubah');
+      assertEq(r.status, STATUS_HADIR.HADIR, 'status tidak berubah');
+      expectError('ALREADY_CHECKED_OUT', () => performCheckOut_(user, loc(15, 8), at('2000-01-03', '15:00:00', 1), school, schedule), 'pulang kedua');
+    });
+
+    test('Absen pulang tanpa absen masuk ditolak', () => {
+      expectError('NOT_CHECKED_IN', () => performCheckOut_(user, loc(10, 8), at('2000-01-04', '14:30:00', 2), school, schedule), 'belum masuk');
+    });
+
+    test('Masuk lewat batas terlambat = Terlambat (07:15:59 masih tepat waktu)', () => {
+      assertEq(performCheckIn_(user, loc(10, 8), at('2000-01-05', '07:15:59', 3), school, schedule).status, STATUS_HADIR.HADIR, '07:15:59');
+      assertEq(performCheckIn_(user, loc(10, 8), at('2000-01-06', '07:16:00', 4), school, schedule).status, STATUS_HADIR.TERLAMBAT, '07:16:00');
+    });
+
+    test('Absen masuk ditutup setelah batas & ditolak di luar hari kerja', () => {
+      expectError('CHECKIN_CLOSED', () => performCheckIn_(user, loc(10, 8), at('2000-01-07', '12:01:00', 5), school, schedule), 'lewat 12:00');
+      expectError('NOT_WORKDAY', () => performCheckIn_(user, loc(10, 8), at('2000-01-09', '07:00:00', 7), school, schedule), 'Minggu');
+      assertEq(findByKey_(SHEETS.ABSENSI, attendanceId_('2000-01-07', user.user_id)), null, 'tidak ada baris tersimpan');
+    });
+
+    test('Lokasi tidak valid ditolak dan tidak tersimpan', () => {
+      expectError('LOCATION_INVALID', () => performCheckIn_(user, loc(60, 8), at('2000-01-08', '07:00:00', 6), school, schedule), 'di luar radius');
+      expectError('LOCATION_INVALID', () => performCheckIn_(user, loc(10, 45), at('2000-01-08', '07:00:00', 6), school, schedule), 'akurasi buruk');
+      assertEq(findByKey_(SHEETS.ABSENSI, attendanceId_('2000-01-08', user.user_id)), null, 'tidak tersimpan');
+    });
+
+    test('Anomali dicatat: sampel identik & koordinat sama dengan absensi sebelumnya', () => {
+      const prev = findByKey_(SHEETS.ABSENSI, attendanceId_('2000-01-03', user.user_id));
+      const same = { lat: prev.latitude_masuk, lng: prev.longitude_masuk, accuracy: 5 };
+      same.samples = [0, 1000, 2000].map(t => ({ lat: same.lat, lng: same.lng, accuracy: 5, t: t }));
+      performCheckIn_(user, same, at('2000-01-10', '07:00:00', 1), school, schedule);
+      const row = findByKey_(SHEETS.ABSENSI, attendanceId_('2000-01-10', user.user_id));
+      assert(row.anomali.indexOf('Masuk: ') === 0, 'label Masuk: ' + row.anomali);
+      assert(row.anomali.indexOf('identik') >= 0, 'sampel identik: ' + row.anomali);
+      assert(row.anomali.indexOf('sama dengan absensi sebelumnya') >= 0, 'koordinat sama: ' + row.anomali);
+
+      performCheckOut_(user, same, at('2000-01-10', '14:00:00', 1), school, schedule);
+      const after = findByKey_(SHEETS.ABSENSI, attendanceId_('2000-01-10', user.user_id));
+      assert(after.anomali.indexOf(' | Pulang: ') > 0, 'anomali pulang ditambahkan: ' + after.anomali);
+    });
+
+    test('Riwayat banyak baris terbaca benar (pencarian per pengguna)', () => {
+      // 4 baris dari kasus di atas + 8 baris tambahan agar jalur "baca sekaligus" (>10 hasil) teruji.
+      for (let d = 1; d <= 8; d++) {
+        const tgl = '2000-02-0' + d;
+        insertRow_(SHEETS.ABSENSI, { attendance_id: attendanceId_(tgl, user.user_id), user_id: user.user_id, nama_guru: user.nama_guru, tanggal: tgl, status: STATUS_HADIR.HADIR });
+      }
+      const rows = findRowsBy_(SHEETS.ABSENSI, 'user_id', user.user_id);
+      assertEq(rows.length, 12, 'jumlah baris uji');
+      assert(rows.every(r => r.user_id === user.user_id && r.attendance_id.indexOf('ATT-2000') === 0), 'semua milik pengguna uji');
+    });
+
+    test('API absensi wajib login', () => {
+      assertEq(dispatch_({ action: 'checkIn', payload: { latitude: -6.2, longitude: 106.8, accuracy: 5 } }, 'POST').error.code, 'SESSION_INVALID', 'checkIn tanpa sesi');
+      assertEq(dispatch_({ action: 'getToday' }, 'POST').error.code, 'SESSION_INVALID', 'getToday tanpa sesi');
+      const sch = getSchedule_();
+      assert(/^\d{2}:\d{2}$/.test(sch.batasTerlambat) && sch.hariKerja.length > 0, 'jadwal dari SETTINGS valid');
+    });
+  } finally {
+    deleteRowsWhere_(SHEETS.ABSENSI, r => r.user_id === user.user_id);
+  }
+
+  finish();
+}

@@ -123,6 +123,31 @@ svg.lucide { width: 18px; height: 18px; flex-shrink: 0; }
 .badge-guru { background: var(--green-100); color: var(--green-800); }
 .badge-off { background: var(--red-50); color: var(--red-600); }
 
+/* ---------- Kartu absensi hari ini ---------- */
+.today-card { display: grid; gap: 14px; }
+.today-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.today-date { font-size: .9rem; }
+.clock { font-size: 2.2rem; font-weight: 700; line-height: 1.1; color: var(--green-800); font-variant-numeric: tabular-nums; }
+.clock small { font-size: .9rem; font-weight: 600; color: var(--muted); }
+.status-pill { padding: 4px 12px; border-radius: 999px; font-weight: 700; font-size: .85rem; white-space: nowrap; }
+.st-hadir { background: var(--green-100); color: var(--green-800); }
+.st-terlambat { background: #fef3c7; color: #92400e; }
+.st-izin { background: #dbeafe; color: #1e40af; }
+.st-alpa { background: var(--red-50); color: #991b1b; }
+.today-times { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.today-times div { background: var(--bg); border-radius: 10px; padding: 10px 12px; display: grid; gap: 2px; }
+.today-times span { font-size: .78rem; }
+.today-times strong { font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+.attend-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn-attend { min-height: 64px; font-size: 1rem; font-weight: 700; letter-spacing: .02em; border-radius: 14px; }
+.btn-attend svg.lucide { width: 22px; height: 22px; }
+.btn-in { background: var(--green-700); color: #fff; }
+.btn-in:hover:not(:disabled) { background: var(--green-800); }
+.btn-out { background: #fff; color: var(--green-800); border: 2px solid var(--green-700); }
+.btn-out:hover:not(:disabled) { background: var(--green-50); }
+.btn-attend:disabled { background: #e5e7eb; color: #9ca3af; border-color: #e5e7eb; opacity: 1; }
+.attend-hint { margin: 0; font-size: .88rem; }
+
 /* ---------- Kartu lokasi GPS ---------- */
 .stack { display: grid; gap: 12px; }
 .card-title { margin: 0 0 6px; font-size: 1.1rem; }

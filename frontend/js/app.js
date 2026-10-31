@@ -12,12 +12,16 @@ const App = (() => {
     tab: 'beranda',
     users: [],
     userSearch: '',
+    today: null,        // hasil getToday: { serverNow, tanggal, isWorkday, schedule, record }
+    clockOffset: 0,     // selisih jam server - jam perangkat (ms)
+    clockTimer: null,
+    todayKey: '',
+    submitting: false,
     loc: {
       config: null,     // { configured, lat, lng, radius, maxAccuracy }
       status: 'idle',   // lihat Geo.watch
       coords: null,
       samples: [],
-      server: null,     // hasil verifikasi server terakhir
       stop: null,       // fungsi penghenti pemantauan GPS
       gen: 0,           // penanda panggilan startLocation terakhir
       renderKey: '',
@@ -31,6 +35,7 @@ const App = (() => {
   async function init() {
     window.addEventListener('session-expired', e => {
       stopLocation();
+      stopClock();
       state.user = null;
       toast(e.detail || 'Sesi berakhir. Silakan login kembali.', 'error');
       renderLogin();
@@ -146,6 +151,7 @@ const App = (() => {
     const ok = await confirm('Keluar', 'Keluar dari aplikasi di perangkat ini?', 'Keluar');
     if (!ok) return;
     stopLocation();
+    stopClock();
     try { await Api.call('logout'); } catch (e) { /* sesi tetap dihapus di perangkat */ }
     Api.clearSession();
     if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
@@ -158,6 +164,7 @@ const App = (() => {
 
   function renderApp() {
     stopLocation();
+    stopClock();
     const isAdmin = state.user.role === 'admin';
     if (!isAdmin) state.tab = 'beranda';
 
@@ -196,14 +203,184 @@ const App = (() => {
     icons();
   }
 
-  /* ---------- Beranda: lokasi & profil ---------- */
+  /* ---------- Beranda: absensi hari ini, lokasi & profil ---------- */
 
   function renderHomeView() {
     document.getElementById('view').innerHTML = `
+      <section class="card today-card" id="today-card"></section>
       <section class="card loc-card" id="loc-card" aria-live="polite"></section>
       <div id="profile-cards" class="stack"></div>`;
+    state.todayKey = '';
+    renderTodayCard();
     renderProfileCards();
+    loadToday();
     startLocation();
+  }
+
+  /* ---------- Absensi hari ini ---------- */
+
+  const STATUS_CLASS = {
+    'Hadir': 'st-hadir', 'Terlambat': 'st-terlambat', 'Izin': 'st-izin',
+    'Sakit': 'st-izin', 'Tanpa Keterangan': 'st-alpa',
+  };
+
+  /** Waktu server saat ini (jam perangkat dikoreksi selisih dengan server). */
+  function serverNow() {
+    return new Date(Date.now() + state.clockOffset);
+  }
+
+  function wibParts(date) {
+    const p = {};
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    }).formatToParts(date).forEach(x => { p[x.type] = x.value; });
+    return { tanggal: `${p.year}-${p.month}-${p.day}`, hm: `${p.hour}:${p.minute}`, jam: `${p.hour}:${p.minute}:${p.second}` };
+  }
+
+  function formatTanggalPanjang(date) {
+    return date.toLocaleDateString('id-ID', {
+      timeZone: 'Asia/Jakarta', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    });
+  }
+
+  async function loadToday() {
+    try {
+      const sentAt = Date.now();
+      const today = await Api.call('getToday');
+      // Perkiraan selisih jam: titik tengah perjalanan request.
+      state.clockOffset = today.serverNow - Math.round((sentAt + Date.now()) / 2);
+      state.today = today;
+      state.todayError = '';
+    } catch (err) {
+      state.todayError = err.message;
+    }
+    state.todayKey = '';
+    renderTodayCard();
+    startClock();
+  }
+
+  function startClock() {
+    stopClock();
+    state.clockTimer = setInterval(() => {
+      if (!document.getElementById('today-card')) return stopClock();
+      const parts = wibParts(serverNow());
+      const clock = document.getElementById('clock');
+      if (clock) clock.textContent = parts.jam;
+      // Lewat tengah malam: ambil status hari yang baru.
+      if (state.today && parts.tanggal !== state.today.tanggal) return loadToday();
+      renderTodayCard(); // hanya menggambar ulang bila status tombol berubah
+    }, 1000);
+  }
+
+  function stopClock() {
+    if (state.clockTimer) clearInterval(state.clockTimer);
+    state.clockTimer = null;
+  }
+
+  /** Tahap absensi saat ini berdasarkan data server & jam server. */
+  function attendancePhase() {
+    const t = state.today;
+    if (!t) return { phase: 'loading' };
+    const hm = wibParts(serverNow()).hm;
+    const r = t.record;
+    if (r && !r.jamMasuk) return { phase: 'status', note: `Anda tercatat ${r.status} hari ini.` };
+    if (r && r.jamPulang) return { phase: 'done', note: 'Absensi hari ini sudah lengkap. Terima kasih.' };
+    if (r) {
+      return hm >= t.schedule.jamPulang
+        ? { phase: 'checkout' }
+        : { phase: 'wait', note: `Absen pulang dapat dilakukan mulai pukul ${t.schedule.jamPulang} WIB.` };
+    }
+    if (!t.isWorkday) return { phase: 'off', note: 'Hari ini bukan hari kerja.' };
+    if (hm > t.schedule.batasAbsenMasuk) {
+      return { phase: 'closed', note: `Absen masuk sudah ditutup pukul ${t.schedule.batasAbsenMasuk} WIB.` };
+    }
+    return { phase: 'checkin' };
+  }
+
+  function locationIsValid() {
+    const loc = state.loc;
+    return loc.status === 'ok' && loc.coords && loc.config && loc.config.configured && localVerdict().valid;
+  }
+
+  function renderTodayCard() {
+    const card = document.getElementById('today-card');
+    if (!card) return;
+    const t = state.today;
+    const ph = attendancePhase();
+    const locOk = locationIsValid();
+    const r = t && t.record;
+
+    const key = [ph.phase, locOk, state.submitting, r && r.jamMasuk, r && r.jamPulang, r && r.status, state.todayError].join('|');
+    if (key === state.todayKey) return;
+    state.todayKey = key;
+
+    if (!t) {
+      card.innerHTML = state.todayError
+        ? `<div class="alert alert-error">${esc(state.todayError)}</div>
+           <button class="btn btn-ghost" id="btn-today-retry"><i data-lucide="refresh-cw"></i> Coba lagi</button>`
+        : '<div class="empty"><span class="spinner spinner-dark"></span></div>';
+      const retry = document.getElementById('btn-today-retry');
+      if (retry) retry.onclick = loadToday;
+      return icons();
+    }
+
+    const canIn = ph.phase === 'checkin' && locOk && !state.submitting;
+    const canOut = ph.phase === 'checkout' && locOk && !state.submitting;
+    let hint = ph.note || '';
+    if (!hint && !locOk) hint = 'Tombol absen aktif setelah lokasi Anda valid (di dalam radius sekolah dengan akurasi GPS yang baik).';
+    if (!hint && ph.phase === 'checkin') hint = `Jam masuk ${t.schedule.jamMasuk} WIB · terlambat setelah ${t.schedule.batasTerlambat} WIB.`;
+
+    card.innerHTML = `
+      <div class="today-head">
+        <div>
+          <span class="muted today-date">${esc(formatTanggalPanjang(serverNow()))}</span>
+          <div class="clock"><span id="clock">${esc(wibParts(serverNow()).jam)}</span> <small>WIB</small></div>
+        </div>
+        ${r && r.status ? `<span class="status-pill ${STATUS_CLASS[r.status] || ''}">${esc(r.status)}</span>` : ''}
+      </div>
+      <div class="today-times">
+        <div><span class="muted">Jam masuk</span><strong>${esc(r && r.jamMasuk ? r.jamMasuk : '--:--')}</strong></div>
+        <div><span class="muted">Jam pulang</span><strong>${esc(r && r.jamPulang ? r.jamPulang : '--:--')}</strong></div>
+      </div>
+      <div class="attend-actions">
+        <button class="btn btn-attend btn-in" id="btn-check-in" ${canIn ? '' : 'disabled'}>
+          ${state.submitting && ph.phase === 'checkin' ? '<span class="spinner"></span>' : '<i data-lucide="log-in"></i>'} ABSEN MASUK
+        </button>
+        <button class="btn btn-attend btn-out" id="btn-check-out" ${canOut ? '' : 'disabled'}>
+          ${state.submitting && ph.phase === 'checkout' ? '<span class="spinner"></span>' : '<i data-lucide="log-out"></i>'} ABSEN PULANG
+        </button>
+      </div>
+      ${hint ? `<p class="muted attend-hint">${esc(hint)}</p>` : ''}`;
+
+    document.getElementById('btn-check-in').onclick = () => submitAttendance('checkIn');
+    document.getElementById('btn-check-out').onclick = () => submitAttendance('checkOut');
+    icons();
+  }
+
+  /** Mengirim absen masuk/pulang beserta lokasi terkini. Server memvalidasi ulang semuanya. */
+  async function submitAttendance(action) {
+    if (state.submitting || !locationIsValid()) return;
+    const { coords, samples } = state.loc;
+    state.submitting = true;
+    renderTodayCard();
+    try {
+      const record = await Api.call(action, {
+        latitude: coords.lat, longitude: coords.lng, accuracy: coords.accuracy, samples,
+      });
+      state.today.record = record;
+      toast(action === 'checkIn'
+        ? `Absen masuk berhasil pukul ${record.jamMasuk} WIB (${record.status}).`
+        : `Absen pulang berhasil pukul ${record.jamPulang} WIB.`, 'success');
+      if (navigator.vibrate) navigator.vibrate(80);
+    } catch (err) {
+      toast(err.message, 'error');
+      if (err.code !== 'NETWORK') loadToday(); // sinkronkan status (mis. sudah absen dari perangkat lain)
+    } finally {
+      state.submitting = false;
+      state.todayKey = '';
+      renderTodayCard();
+    }
   }
 
   function renderProfileCards() {
@@ -235,7 +412,6 @@ const App = (() => {
     stopLocation();
     const loc = state.loc;
     const gen = ++loc.gen; // panggilan yang lebih baru membatalkan yang lama
-    loc.server = null;
     loc.renderKey = '';
     loc.status = 'loading-config';
     renderLocCard();
@@ -308,7 +484,7 @@ const App = (() => {
     const v = loc.status === 'ok' && loc.coords && loc.config && loc.config.configured ? localVerdict() : null;
 
     // Bila status tidak berubah, cukup perbarui angka agar tombol tidak berkedip.
-    const key = [loc.status, v && v.valid, v && v.accuracyOk, v && v.withinRadius, loc.server && loc.server.at].join('|');
+    const key = [loc.status, v && v.valid, v && v.accuracyOk, v && v.withinRadius].join('|');
     if (key === loc.renderKey && v) {
       document.getElementById('loc-distance').textContent = formatDistance(v.distance);
       document.getElementById('loc-accuracy').textContent = '±' + Math.round(loc.coords.accuracy) + ' m';
@@ -361,11 +537,6 @@ const App = (() => {
         <div><span class="muted">Radius</span><strong>${esc(loc.config.radius)} m</strong></div>
       </div>` : '';
 
-    const server = loc.server ? `
-      <div class="alert ${loc.server.valid ? 'alert-success' : 'alert-error'}">
-        <strong>Verifikasi server (${esc(loc.server.at)}):</strong> ${esc(loc.server.message)}
-      </div>` : '';
-
     const canRetry = ['ok', 'denied', 'unavailable', 'timeout', 'config-error'].includes(loc.status);
     card.className = 'card loc-card tone-' + tone;
     card.innerHTML = `
@@ -374,40 +545,19 @@ const App = (() => {
         <div><span class="muted loc-label">Status lokasi</span><h2>${esc(title)}</h2></div>
       </div>
       ${metrics}
-      <div class="loc-body">${body}</div>
-      ${server}
-      <div class="loc-actions">
-        ${canRetry ? '<button class="btn btn-ghost" id="btn-loc-refresh"><i data-lucide="refresh-cw"></i> Perbarui lokasi</button>' : ''}
-        ${v ? '<button class="btn btn-primary" id="btn-loc-verify"><i data-lucide="shield-check"></i> Verifikasi ke server</button>' : ''}
-      </div>`;
+      ${body ? `<div class="loc-body">${body}</div>` : ''}
+      ${canRetry ? `<div class="loc-actions">
+        <button class="btn btn-ghost" id="btn-loc-refresh"><i data-lucide="refresh-cw"></i> Perbarui lokasi</button>
+      </div>` : ''}`;
 
     const refresh = document.getElementById('btn-loc-refresh');
     if (refresh) refresh.onclick = startLocation;
-    const verify = document.getElementById('btn-loc-verify');
-    if (verify) verify.onclick = () => verifyLocation(verify);
     icons();
+    renderTodayCard(); // validitas lokasi menentukan aktif/tidaknya tombol absen
   }
 
   function formatDistance(m) {
     return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(2).replace('.', ',') + ' km';
-  }
-
-  /** Meminta server menilai lokasi terkini (tanpa menyimpan absensi). */
-  async function verifyLocation(button) {
-    const { coords, samples } = state.loc;
-    await withLoading(button, async () => {
-      try {
-        const result = await Api.call('checkLocation', {
-          latitude: coords.lat, longitude: coords.lng, accuracy: coords.accuracy, samples,
-        });
-        state.loc.server = Object.assign(result, {
-          at: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        });
-      } catch (err) {
-        toast(err.message, 'error');
-      }
-    });
-    renderLocCard();
   }
 
   /* ---------- Lokasi Sekolah (admin) ---------- */
