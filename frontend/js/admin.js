@@ -41,6 +41,7 @@ const Admin = (() => {
         </div>
       </div>
       <div id="dash-banner"></div>
+      <div id="install-slot"></div>
       <div class="kpis" id="kpis">${kpiSkeleton()}</div>
       <div class="stack">
         <section class="card">
@@ -69,6 +70,7 @@ const Admin = (() => {
     const btnToday = document.getElementById('dash-today');
     if (btnToday) btnToday.onclick = () => { s.date = today; dashboard(view); };
     document.getElementById('rk-search').oninput = e => { s.search = e.target.value; renderRekap(); };
+    App.onLeave(Pwa.mountInstallCard(document.getElementById('install-slot')));
     view.querySelectorAll('[data-j]').forEach(b => {
       b.onclick = () => {
         s.jenjang = b.dataset.j;

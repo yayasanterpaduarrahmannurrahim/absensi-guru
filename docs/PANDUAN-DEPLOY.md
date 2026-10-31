@@ -134,3 +134,15 @@ Baris `max_accuracy_meter` (default `30`) menentukan akurasi GPS terburuk yang m
 
 Login Google membutuhkan **OAuth Client ID** dari project Google Cloud Anda, dan Client ID
 membutuhkan alamat GitHub Pages. Panduan lengkapnya akan ditambahkan di Tahap 2.
+
+---
+
+## Tahap 8 — PWA (pasang di HP)
+
+- **Android (Chrome):** buka aplikasi → muncul kartu **Pasang Absensi Guru** di Beranda (atau menu ⋮ → *Instal aplikasi* / *Tambahkan ke layar utama*).
+- **iPhone (Safari):** tombol **Bagikan** → **Tambah ke Layar Utama** → **Tambah**. Harus memakai Safari.
+- Aplikasi terpasang terbuka layar penuh (tanpa bilah alamat), dengan ikon & splash screen hijau.
+- Tampilan aplikasi tersimpan di HP (Service Worker), tetapi **absensi tetap butuh internet** karena jam & lokasi diverifikasi server.
+- Di iPhone, bila login Google dari aplikasi terpasang tidak kembali ke aplikasi, gunakan **masuk dengan kode email**.
+
+**Merilis pembaruan frontend:** naikkan `VERSION` di `frontend/sw.js` **dan** semua `?v=` di `frontend/index.html` ke nilai yang sama, lalu push. Pengguna akan melihat bilah **"Versi baru aplikasi tersedia → Muat ulang"**.

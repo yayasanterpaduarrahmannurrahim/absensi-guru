@@ -73,6 +73,7 @@ const Guru = (() => {
           </section>
           <section class="card today-card" id="today-card"></section>
           <section class="card loc-card" id="loc-card" aria-live="polite"></section>
+          <div id="install-slot"></div>
         </div>
         <div class="stack">
           <h2 class="section-title">Bulan ini</h2>
@@ -84,6 +85,7 @@ const Guru = (() => {
         </div>
       </div>`;
     document.getElementById('btn-all-history').onclick = () => App.go('riwayat');
+    App.onLeave(Pwa.mountInstallCard(document.getElementById('install-slot')));
 
     s.todayKey = '';
     renderTodayCard();
@@ -461,9 +463,12 @@ const Guru = (() => {
         </dl>
       </section>
       <p class="muted small-note">Data profil dikelola oleh admin sekolah. Hubungi admin bila ada yang perlu diperbaiki.</p>
+      ${Pwa.canInstall() ? '<button class="btn btn-primary btn-block" id="btn-profile-install"><i data-lucide="download"></i> Pasang aplikasi di HP</button>' : ''}
       <button class="btn btn-ghost btn-block" id="btn-profile-logout"><i data-lucide="log-out"></i> Keluar dari aplikasi</button>
       <p class="muted small-note" style="text-align:center"><a href="privacy.html">Kebijakan Privasi</a></p>`;
     document.getElementById('btn-profile-logout').onclick = App.logout;
+    const inst = document.getElementById('btn-profile-install');
+    if (inst) inst.onclick = Pwa.install;
   }
 
   return { home, history, profile, STATUS_CLASS, statusPill, shortTime };

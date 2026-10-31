@@ -83,8 +83,8 @@ Perbedaan dari rancangan awal:
 | 4 | Absen masuk & pulang, pengaturan jam kerja | Selesai — tes & uji aplikasi sesuai (2026-10-31) |
 | 5 | Izin/sakit, bukti Drive, Tanpa Keterangan otomatis | Selesai — 10/10 tes & uji aplikasi sesuai (2026-10-31) |
 | 6 | Dashboard admin & guru, rekap, koreksi, log, login kode email | Selesai — tes & uji aplikasi sesuai (2026-10-31) |
-| 7 | Laporan per periode & ekspor Excel/CSV | Ter-deploy, menunggu runTahap7Tests & uji aplikasi |
-| 8 | PWA | — |
+| 7 | Laporan per periode & ekspor Excel/CSV | Selesai (2026-10-31) |
+| 8 | PWA: manifest, ikon, Service Worker, pasang di HP | Ter-deploy, menunggu uji pasang di HP |
 | 9 | Pengujian keamanan & beban | — |
 
 Panduan: [docs/PANDUAN-DEPLOY.md](docs/PANDUAN-DEPLOY.md)
