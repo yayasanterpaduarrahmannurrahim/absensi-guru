@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kebijakan Privasi — Absensi Guru Arrahman Nurrahim</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --green: #15803d; --green-soft: #f0fdf4; --text: #1f2937; --muted: #6b7280; --line: #e5e7eb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; color: var(--text); background: #fff; line-height: 1.65; }
+    header { background: var(--green); color: #fff; padding: 28px 16px; }
+    header .wrap, main { max-width: 760px; margin: 0 auto; }
+    header h1 { margin: 0; font-size: 1.5rem; }
+    header p { margin: 4px 0 0; opacity: .9; }
+    main { padding: 24px 16px 48px; }
+    h2 { font-size: 1.1rem; color: var(--green); margin-top: 28px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+    ul { padding-left: 20px; }
+    .note { background: var(--green-soft); border-left: 4px solid var(--green); padding: 12px 16px; border-radius: 6px; }
+    footer { color: var(--muted); font-size: .9rem; margin-top: 36px; }
+    a { color: var(--green); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>Kebijakan Privasi</h1>
+      <p>Aplikasi Absensi Guru — Yayasan Arrahman Nurrahim (TK &amp; SD)</p>
+    </div>
+  </header>
+  <main>
+    <p>Aplikasi Absensi Guru digunakan secara internal oleh Yayasan Arrahman Nurrahim untuk mencatat
+      kehadiran guru dan tenaga kependidikan. Halaman ini menjelaskan data apa yang dikumpulkan,
+      untuk apa, dan bagaimana data tersebut dilindungi.</p>
+
+    <h2>1. Data yang dikumpulkan</h2>
+    <ul>
+      <li><strong>Data akun Google</strong>: nama dan alamat email, diperoleh saat Anda masuk dengan
+        "Sign in with Google". Aplikasi <em>tidak</em> menerima atau menyimpan password Google Anda.</li>
+      <li><strong>Data kepegawaian</strong>: nama, NIP (jika ada), dan jenjang mengajar (TK/SD) yang diisi oleh admin yayasan.</li>
+      <li><strong>Data kehadiran</strong>: tanggal, jam masuk, jam pulang, dan status kehadiran. Jam dicatat menurut waktu server (WIB).</li>
+      <li><strong>Data lokasi</strong>: koordinat GPS (latitude, longitude), tingkat akurasi, dan jarak ke sekolah,
+        <strong>hanya pada saat Anda menekan tombol absen masuk atau pulang</strong>.</li>
+      <li><strong>Pengajuan izin/sakit</strong>: tanggal, alasan, dan dokumen bukti yang Anda unggah.</li>
+    </ul>
+    <p class="note">Aplikasi <strong>tidak melacak lokasi Anda secara terus-menerus</strong>. Lokasi dibaca
+      ketika halaman absensi terbuka untuk menampilkan jarak ke sekolah, dan hanya disimpan ketika absensi dikirim.</p>
+
+    <h2>2. Tujuan penggunaan</h2>
+    <ul>
+      <li>Memastikan absensi dilakukan di area sekolah.</li>
+      <li>Menyusun rekap dan laporan kehadiran harian, mingguan, dan bulanan.</li>
+      <li>Memproses pengajuan izin dan sakit.</li>
+      <li>Menjaga keamanan sistem, termasuk pencatatan perubahan data oleh admin (audit log).</li>
+    </ul>
+    <p>Data tidak digunakan untuk iklan, tidak dijual, dan tidak dibagikan kepada pihak ketiga.</p>
+
+    <h2>3. Penyimpanan dan keamanan</h2>
+    <ul>
+      <li>Data disimpan di Google Sheets dan Google Drive milik akun Google Yayasan Arrahman Nurrahim,
+        dan diproses oleh Google Apps Script milik yayasan.</li>
+      <li>Guru tidak memiliki akses langsung ke database dan hanya dapat melihat data kehadirannya sendiri melalui aplikasi.</li>
+      <li>Hanya admin yayasan yang dapat melihat data seluruh guru.</li>
+      <li>Komunikasi menggunakan HTTPS. Sesi login memiliki masa berlaku dan disimpan dalam bentuk hash.</li>
+    </ul>
+
+    <h2>4. Masa penyimpanan</h2>
+    <p>Data kehadiran disimpan selama diperlukan untuk administrasi kepegawaian yayasan. Jika akun guru dinonaktifkan
+      atau dihapus, guru tersebut tidak dapat lagi masuk ke aplikasi. Data kehadiran yang sudah tercatat tetap disimpan
+      sebagai arsip, kecuali ada permintaan penghapusan yang disetujui yayasan.</p>
+
+    <h2>5. Hak Anda</h2>
+    <p>Anda dapat melihat riwayat kehadiran Anda di aplikasi. Untuk meminta koreksi atau penghapusan data,
+      hubungi admin yayasan.</p>
+
+    <h2>6. Kontak</h2>
+    <p>Yayasan Arrahman Nurrahim — <a href="mailto:yayasanterpaduarrahmannurrahim@gmail.com">yayasanterpaduarrahmannurrahim@gmail.com</a></p>
+
+    <footer>Terakhir diperbarui: 31 Oktober 2026 · <a href="./">Kembali ke aplikasi</a></footer>
+  </main>
+</body>
+</html>
