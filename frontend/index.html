@@ -2,30 +2,27 @@
 <html lang="id">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Absensi Guru — Yayasan Arrahman Nurrahim</title>
+  <meta name="description" content="Aplikasi absensi guru Yayasan Arrahman Nurrahim (TK & SD).">
   <meta name="theme-color" content="#15803d">
   <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
-  <style>
-    :root { --green: #15803d; --text: #1f2937; --muted: #6b7280; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
-      font-family: 'Plus Jakarta Sans', system-ui, sans-serif; color: var(--text); background: #f0fdf4; }
-    .card { background: #fff; max-width: 420px; width: 100%; padding: 32px 24px; border-radius: 16px;
-      box-shadow: 0 10px 30px rgba(21, 128, 61, .08); text-align: center; }
-    h1 { margin: 0 0 4px; font-size: 1.4rem; color: var(--green); }
-    p { margin: 8px 0; color: var(--muted); }
-    a { color: var(--green); font-size: .9rem; }
-  </style>
+  <link rel="stylesheet" href="css/app.css?v=0.2.0">
 </head>
 <body>
-  <!-- Halaman sementara. Aplikasi lengkap (login Google & absensi) dibangun mulai Tahap 2. -->
-  <main class="card">
-    <h1>Absensi Guru</h1>
-    <p><strong>Yayasan Arrahman Nurrahim</strong><br>TK &amp; SD</p>
-    <p>Aplikasi sedang disiapkan.</p>
-    <p><a href="privacy.html">Kebijakan Privasi</a></p>
-  </main>
+  <div id="app"></div>
+  <div id="modal-root"></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <noscript>Aplikasi ini membutuhkan JavaScript. Aktifkan JavaScript di browser Anda.</noscript>
+
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <script src="js/config.js?v=0.2.0"></script>
+  <script src="js/api.js?v=0.2.0"></script>
+  <script src="js/ui.js?v=0.2.0"></script>
+  <script src="js/app.js?v=0.2.0"></script>
 </body>
 </html>

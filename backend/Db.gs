@@ -152,6 +152,17 @@ function updateByKey_(name, keyValue, patch) {
   });
 }
 
+/** Menghapus semua baris yang memenuhi predicate. Mengembalikan record yang dihapus. */
+function deleteRowsWhere_(name, predicate) {
+  return withLock_(() => {
+    const rows = readAll_(name).filter(predicate);
+    const sh = getSheet_(name);
+    // Hapus dari bawah agar nomor baris di atasnya tidak bergeser.
+    rows.slice().sort((a, b) => b._row - a._row).forEach(r => sh.deleteRow(r._row));
+    return rows;
+  });
+}
+
 /** Menghapus baris dengan key tertentu. Mengembalikan record yang dihapus. */
 function deleteByKey_(name, keyValue) {
   return withLock_(() => {

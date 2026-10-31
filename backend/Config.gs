@@ -8,8 +8,10 @@
 
 const APP = Object.freeze({
   NAME: 'Absensi Guru',
-  VERSION: '0.1.0',
+  VERSION: '0.2.0',
   TIMEZONE: 'Asia/Jakarta',
+  // OAuth Client ID (bukan rahasia; juga dipakai frontend). Token login harus ditujukan ke ID ini.
+  GOOGLE_CLIENT_ID: '786435738658-rcbo8rsdafur0u4tfgo6ig4l8j1jh4t4.apps.googleusercontent.com',
   PROP_SPREADSHEET_ID: 'SPREADSHEET_ID',
   LOCK_TIMEOUT_MS: 15000,
   MAX_REQUEST_BYTES: 100 * 1024,

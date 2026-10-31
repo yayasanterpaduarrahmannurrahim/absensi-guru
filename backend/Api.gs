@@ -11,13 +11,22 @@
  */
 
 /**
- * Daftar aksi. auth: 'public' | 'guru' | 'admin'. get: true = boleh lewat GET
- * (hanya untuk aksi baca yang tidak mengubah data).
+ * Daftar aksi. auth: 'public' | 'user' (semua yang login) | 'admin'.
+ * get: true = boleh lewat GET (hanya untuk aksi baca publik yang tidak mengubah data).
  */
 function getRoutes_() {
   return {
     ping: { auth: 'public', get: true, handler: apiPing_ },
     getPublicConfig: { auth: 'public', get: true, handler: apiGetPublicConfig_ },
+
+    loginGoogle: { auth: 'public', handler: apiLoginGoogle_ },
+    logout: { auth: 'user', handler: apiLogout_ },
+    me: { auth: 'user', handler: apiMe_ },
+
+    adminListUsers: { auth: 'admin', handler: apiAdminListUsers_ },
+    adminCreateUser: { auth: 'admin', handler: apiAdminCreateUser_ },
+    adminUpdateUser: { auth: 'admin', handler: apiAdminUpdateUser_ },
+    adminDeleteUser: { auth: 'admin', handler: apiAdminDeleteUser_ },
   };
 }
 
@@ -55,8 +64,7 @@ function dispatch_(request, method) {
     const payload = request.payload && typeof request.payload === 'object' ? request.payload : {};
     const ctx = { session: null };
     if (route.auth !== 'public') {
-      // requireSession_ didefinisikan di Auth.gs (Tahap 2). Identitas pengguna
-      // selalu diambil dari sesi, tidak pernah dari user_id kiriman frontend.
+      // Identitas pengguna selalu diambil dari sesi, tidak pernah dari user_id kiriman frontend.
       ctx.session = requireSession_(request.token, route.auth);
     }
     return { ok: true, data: route.handler(payload, ctx) };

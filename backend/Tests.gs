@@ -1,25 +1,49 @@
 /**
  * Tests.gs — Pengujian otomatis per tahap. Jalankan dari editor Apps Script.
- * Pengujian tidak mengubah data produksi: uji tulis memakai sheet sementara
- * yang dihapus kembali di akhir.
+ * Data uji (sheet sementara, pengguna uji berawalan "uji.tahap") dihapus kembali
+ * di akhir. Jejaknya tetap tercatat di AUDIT_LOG dengan user_id 'TEST'.
  */
 
-function runTahap1Tests() {
+/** Pembantu pengujian: mencatat hasil tiap kasus lalu melaporkan ringkasan. */
+function createTestRunner_() {
   const results = [];
-  const test = (name, fn) => {
-    try {
-      fn();
-      results.push(['LULUS', name, '']);
-    } catch (err) {
-      results.push(['GAGAL', name, err && err.message ? err.message : String(err)]);
-    }
+  const t = {
+    test(name, fn) {
+      try {
+        fn();
+        results.push(['LULUS', name, '']);
+      } catch (err) {
+        results.push(['GAGAL', name, err && err.message ? err.message : String(err)]);
+      }
+    },
+    assert(cond, msg) { if (!cond) throw new Error(msg); },
+    assertEq(actual, expected, label) {
+      if (actual !== expected) {
+        throw new Error(label + ': diharapkan ' + JSON.stringify(expected) + ', didapat ' + JSON.stringify(actual));
+      }
+    },
+    /** Memastikan fn melempar AppError dengan kode tertentu. */
+    expectError(code, fn, label) {
+      try {
+        fn();
+      } catch (err) {
+        if (err.code === code) return;
+        throw new Error(label + ': diharapkan error ' + code + ', didapat ' + (err.code || err.message));
+      }
+      throw new Error(label + ': diharapkan error ' + code + ', tetapi berhasil');
+    },
+    finish() {
+      const failed = results.filter(r => r[0] === 'GAGAL');
+      results.forEach(r => console.log('[' + r[0] + '] ' + r[1] + (r[2] ? ' — ' + r[2] : '')));
+      console.log('Hasil: ' + (results.length - failed.length) + '/' + results.length + ' lulus.');
+      if (failed.length) throw new Error(failed.length + ' pengujian gagal. Lihat log di atas.');
+    },
   };
-  const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
-  const assertEq = (actual, expected, label) => {
-    if (actual !== expected) {
-      throw new Error(label + ': diharapkan ' + JSON.stringify(expected) + ', didapat ' + JSON.stringify(actual));
-    }
-  };
+  return t;
+}
+
+function runTahap1Tests() {
+  const { test, assert, assertEq, finish } = createTestRunner_();
 
   resetDbCache_();
 
@@ -133,8 +157,121 @@ function runTahap1Tests() {
     assertEq(out.error.code, 'BAD_REQUEST', 'body rusak');
   });
 
-  const failed = results.filter(r => r[0] === 'GAGAL');
-  results.forEach(r => console.log('[' + r[0] + '] ' + r[1] + (r[2] ? ' — ' + r[2] : '')));
-  console.log('Hasil: ' + (results.length - failed.length) + '/' + results.length + ' lulus.');
-  if (failed.length) throw new Error(failed.length + ' pengujian gagal. Lihat log di atas.');
+  finish();
+}
+
+/**
+ * Tahap 2: login Google, sesi, hak akses, dan manajemen pengguna.
+ * Menjalankan fungsi ini pertama kali juga memunculkan permintaan izin
+ * "terhubung ke layanan eksternal" yang dibutuhkan untuk verifikasi token Google.
+ */
+function runTahap2Tests() {
+  const { test, assert, assertEq, expectError, finish } = createTestRunner_();
+  resetDbCache_();
+
+  const testCtx = { session: { user: { user_id: 'TEST' } } };
+  const suffix = Utilities.getUuid().slice(0, 8);
+  const guruEmail = 'uji.tahap2.' + suffix + '@example.invalid';
+  const realAdmin = readAll_(SHEETS.USERS)
+    .find(u => u.role === ROLES.ADMIN && u.status_akun === STATUS_AKUN.AKTIF);
+  let guru = null;
+
+  try {
+    test('Token Google palsu ditolak (lokal & oleh server Google)', () => {
+      expectError('INVALID_GOOGLE_TOKEN', () => verifyGoogleIdToken_('pendek'), 'token pendek');
+      expectError('INVALID_GOOGLE_TOKEN', () => verifyGoogleIdToken_(null), 'token null');
+      const fake = 'a'.repeat(60) + '.' + 'b'.repeat(60) + '.' + 'c'.repeat(40);
+      expectError('INVALID_GOOGLE_TOKEN', () => verifyGoogleIdToken_(fake), 'token palsu ke tokeninfo');
+      const viaApi = dispatch_({ action: 'loginGoogle', payload: { credential: fake } }, 'POST');
+      assertEq(viaApi.error && viaApi.error.code, 'INVALID_GOOGLE_TOKEN', 'loginGoogle via router');
+    });
+
+    test('Validasi input pengguna', () => {
+      const base = { nama: 'Guru Uji', email: guruEmail, role: 'guru', jenjang: 'SD', nip: '' };
+      expectError('VALIDATION', () => apiAdminCreateUser_(Object.assign({}, base, { email: 'bukan-email' }), testCtx), 'email salah');
+      expectError('VALIDATION', () => apiAdminCreateUser_(Object.assign({}, base, { jenjang: '' }), testCtx), 'guru tanpa jenjang');
+      expectError('VALIDATION', () => apiAdminCreateUser_(Object.assign({}, base, { jenjang: 'SMP' }), testCtx), 'jenjang tidak dikenal');
+      expectError('VALIDATION', () => apiAdminCreateUser_(Object.assign({}, base, { role: 'superadmin' }), testCtx), 'peran tidak dikenal');
+      expectError('VALIDATION', () => apiAdminCreateUser_(Object.assign({}, base, { nama: 'A' }), testCtx), 'nama terlalu pendek');
+      expectError('VALIDATION', () => apiAdminCreateUser_(Object.assign({}, base, { nip: '=HYPERLINK()' }), testCtx), 'NIP berisi rumus');
+    });
+
+    test('Admin menambah guru; email ganda ditolak; email disimpan huruf kecil', () => {
+      guru = apiAdminCreateUser_({ nama: 'Guru Uji', email: guruEmail.toUpperCase(), role: 'guru', jenjang: 'SD', nip: '1987 01' }, testCtx);
+      assertEq(guru.email, guruEmail, 'email lowercase');
+      assertEq(guru.statusAkun, STATUS_AKUN.AKTIF, 'status awal');
+      expectError('DUPLICATE', () => apiAdminCreateUser_({ nama: 'Lain', email: guruEmail, role: 'guru', jenjang: 'TK' }, testCtx), 'email ganda');
+      assert(apiAdminListUsers_().some(u => u.userId === guru.userId), 'guru muncul di daftar');
+    });
+
+    test('Email tidak terdaftar ditolak saat login', () => {
+      expectError('NOT_REGISTERED', () => createSessionForEmail_('tidak.ada.' + suffix + '@example.invalid'), 'tidak terdaftar');
+    });
+
+    test('Sesi guru: akses data sendiri ya, fitur admin tidak', () => {
+      const s = createSessionForEmail_(guruEmail);
+      assert(/^[a-f0-9]{64}$/.test(s.token), 'format token');
+      assert(!findByKey_(SHEETS.SESSIONS, s.token), 'token mentah tidak boleh tersimpan');
+      assert(findByKey_(SHEETS.SESSIONS, sha256Hex_(s.token)), 'hash token tersimpan');
+      assertEq(requireSession_(s.token, 'user').user.user_id, guru.userId, 'requireSession user');
+      expectError('FORBIDDEN', () => requireSession_(s.token, 'admin'), 'guru akses admin');
+
+      const me = dispatch_({ action: 'me', token: s.token }, 'POST');
+      assert(me.ok && me.data.user.email === guruEmail, 'aksi me');
+      assertEq(dispatch_({ action: 'adminListUsers', token: s.token }, 'POST').error.code, 'FORBIDDEN', 'adminListUsers oleh guru');
+      assertEq(dispatch_({ action: 'me', token: 'f'.repeat(64) }, 'POST').error.code, 'SESSION_INVALID', 'token asal');
+      assertEq(dispatch_({ action: 'me' }, 'POST').error.code, 'SESSION_INVALID', 'tanpa token');
+      assertEq(dispatch_({ action: 'me', token: s.token }, 'GET').error.code, 'METHOD_NOT_ALLOWED', 'GET dibatasi');
+    });
+
+    test('Sesi kedaluwarsa ditolak', () => {
+      const s = createSessionForEmail_(guruEmail);
+      const hash = sha256Hex_(s.token);
+      updateByKey_(SHEETS.SESSIONS, hash, { expires_at: String(Date.now() - 1000) });
+      removeSessionCache_(hash);
+      expectError('SESSION_INVALID', () => requireSession_(s.token, 'user'), 'sesi kedaluwarsa');
+    });
+
+    test('Logout mengakhiri sesi', () => {
+      const s = createSessionForEmail_(guruEmail);
+      assert(dispatch_({ action: 'logout', token: s.token }, 'POST').ok, 'logout');
+      expectError('SESSION_INVALID', () => requireSession_(s.token, 'user'), 'setelah logout');
+    });
+
+    test('Menonaktifkan guru memutus sesi dan menolak login', () => {
+      const s = createSessionForEmail_(guruEmail);
+      apiAdminUpdateUser_({ userId: guru.userId, nama: 'Guru Uji', email: guruEmail, role: 'guru', jenjang: 'SD', statusAkun: 'nonaktif' }, testCtx);
+      expectError('SESSION_INVALID', () => requireSession_(s.token, 'user'), 'sesi setelah nonaktif');
+      expectError('ACCOUNT_DISABLED', () => createSessionForEmail_(guruEmail), 'login setelah nonaktif');
+      const re = apiAdminUpdateUser_({ userId: guru.userId, nama: 'Guru Uji Diubah', email: guruEmail, role: 'guru', jenjang: 'TK', statusAkun: 'aktif' }, testCtx);
+      assertEq(re.nama, 'Guru Uji Diubah', 'nama diubah');
+      assertEq(re.jenjang, 'TK', 'jenjang diubah');
+    });
+
+    test('Admin tidak bisa menonaktifkan/menghapus diri sendiri', () => {
+      assert(realAdmin, 'admin aktif tidak ditemukan');
+      const selfCtx = { session: { user: realAdmin } };
+      expectError('FORBIDDEN_SELF', () => apiAdminUpdateUser_({
+        userId: realAdmin.user_id, nama: realAdmin.nama_guru, email: realAdmin.email,
+        role: 'guru', jenjang: 'SD', statusAkun: 'aktif',
+      }, selfCtx), 'cabut admin sendiri');
+      expectError('FORBIDDEN_SELF', () => apiAdminDeleteUser_({ userId: realAdmin.user_id }, selfCtx), 'hapus diri sendiri');
+      assertEq(findByKey_(SHEETS.USERS, realAdmin.user_id).role, ROLES.ADMIN, 'admin tetap admin');
+    });
+
+    test('Menghapus guru juga menghapus sesinya', () => {
+      const s = createSessionForEmail_(guruEmail);
+      apiAdminDeleteUser_({ userId: guru.userId }, testCtx);
+      assertEq(findByKey_(SHEETS.USERS, guru.userId), null, 'guru terhapus');
+      expectError('SESSION_INVALID', () => requireSession_(s.token, 'user'), 'sesi guru terhapus');
+      assert(!readAll_(SHEETS.SESSIONS).some(r => r.user_id === guru.userId), 'tidak ada sisa sesi');
+      guru = null;
+    });
+  } finally {
+    // Bersihkan sisa data uji bila ada kasus yang gagal di tengah jalan.
+    const leftovers = deleteRowsWhere_(SHEETS.USERS, u => String(u.email).indexOf('uji.tahap2.') === 0);
+    leftovers.forEach(u => deleteSessionsForUser_(u.user_id));
+  }
+
+  finish();
 }
