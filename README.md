@@ -79,7 +79,7 @@ Perbedaan dari rancangan awal:
 |---|---|---|
 | 1 | Struktur Google Sheets & backend dasar | Selesai — 11/11 tes lulus, Web App ter-deploy (2026-10-31) |
 | 2 | Login Google admin & guru, sesi, kelola pengguna | Selesai — 10/10 tes lulus, uji login manual sesuai (2026-10-31) |
-| 3 | Validasi GPS radius | Sedang dikerjakan |
+| 3 | Validasi GPS radius | 11/11 tes lulus (2026-10-31); menunggu uji lapangan di sekolah |
 | 4 | Absen masuk & pulang | — |
 | 5 | Izin/sakit & status kehadiran | — |
 | 6 | Dashboard admin & guru | — |

@@ -19,6 +19,7 @@ const App = (() => {
       samples: [],
       server: null,     // hasil verifikasi server terakhir
       stop: null,       // fungsi penghenti pemantauan GPS
+      gen: 0,           // penanda panggilan startLocation terakhir
       renderKey: '',
     },
   };
@@ -229,23 +230,26 @@ const App = (() => {
     icons();
   }
 
+  /** Mengambil ulang pengaturan lokasi dari server (bisa diubah admin kapan saja), lalu memantau GPS. */
   async function startLocation() {
     stopLocation();
     const loc = state.loc;
+    const gen = ++loc.gen; // panggilan yang lebih baru membatalkan yang lama
     loc.server = null;
     loc.renderKey = '';
-    if (!loc.config) {
-      loc.status = 'loading-config';
-      renderLocCard();
-      try {
-        loc.config = await Api.call('getLocationConfig');
-      } catch (err) {
-        loc.status = 'config-error';
-        loc.configError = err.message;
-        return renderLocCard();
-      }
-      if (!document.getElementById('loc-card')) return; // pengguna sudah pindah tab
+    loc.status = 'loading-config';
+    renderLocCard();
+    let config;
+    try {
+      config = await Api.call('getLocationConfig');
+    } catch (err) {
+      if (gen !== loc.gen) return;
+      loc.status = 'config-error';
+      loc.configError = err.message;
+      return renderLocCard();
     }
+    if (gen !== loc.gen || !document.getElementById('loc-card') || document.hidden) return;
+    loc.config = config;
     if (!loc.config.configured) {
       loc.status = 'not-configured';
       return renderLocCard();
@@ -261,6 +265,7 @@ const App = (() => {
   }
 
   function stopLocation() {
+    state.loc.gen++;
     if (state.loc.stop) state.loc.stop();
     state.loc.stop = null;
   }
@@ -377,10 +382,7 @@ const App = (() => {
       </div>`;
 
     const refresh = document.getElementById('btn-loc-refresh');
-    if (refresh) refresh.onclick = () => {
-      if (loc.status === 'config-error') loc.config = null;
-      startLocation();
-    };
+    if (refresh) refresh.onclick = startLocation;
     const verify = document.getElementById('btn-loc-verify');
     if (verify) verify.onclick = () => verifyLocation(verify);
     icons();
