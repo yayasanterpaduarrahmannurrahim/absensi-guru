@@ -83,6 +83,18 @@ function readAll_(name) {
     .map((v, i) => rowToObject_(headers, v, i + 2));
 }
 
+/** Membaca `n` baris data terakhir (baris terbaru di akhir array). */
+function readTail_(name, n) {
+  const sh = getSheet_(name);
+  const headers = getHeaders_(name);
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2 || n <= 0) return [];
+  const count = Math.min(n, lastRow - 1);
+  const first = lastRow - count + 1;
+  return sh.getRange(first, 1, count, headers.length).getValues()
+    .map((v, i) => rowToObject_(headers, v, first + i));
+}
+
 /**
  * Mencari baris dengan nilai persis pada satu kolom. Memakai TextFinder
  * sehingga tetap cepat ketika sheet ABSENSI sudah berisi puluhan ribu baris.

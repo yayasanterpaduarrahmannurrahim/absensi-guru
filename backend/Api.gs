@@ -40,6 +40,12 @@ function getRoutes_() {
     adminProcessLeave: { auth: 'admin', handler: apiAdminProcessLeave_ },
     adminGetLeaveProof: { auth: 'admin', handler: apiAdminGetLeaveProof_ },
 
+    myHistory: { auth: 'user', handler: apiMyHistory_ },
+    adminDashboard: { auth: 'admin', handler: apiAdminDashboard_ },
+    adminCorrectAttendance: { auth: 'admin', handler: apiAdminCorrectAttendance_ },
+    adminUpdateIdentity: { auth: 'admin', handler: apiAdminUpdateIdentity_ },
+    adminAuditLog: { auth: 'admin', handler: apiAdminAuditLog_ },
+
     adminListUsers: { auth: 'admin', handler: apiAdminListUsers_ },
     adminCreateUser: { auth: 'admin', handler: apiAdminCreateUser_ },
     adminUpdateUser: { auth: 'admin', handler: apiAdminUpdateUser_ },

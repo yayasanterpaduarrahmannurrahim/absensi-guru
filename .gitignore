@@ -1,3 +1,5 @@
 node_modules/
 .clasprc.json
 *.log
+# Data pribadi (email guru) — hanya dikirim ke Apps Script lewat clasp, tidak ke GitHub.
+backend/*.local.gs

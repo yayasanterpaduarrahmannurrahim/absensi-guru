@@ -649,3 +649,100 @@ function runTahap5Tests() {
 
   finish();
 }
+
+/** Tahap 6: rekap harian, tren, riwayat, koreksi absensi, audit log. */
+function runTahap6Tests() {
+  const { test, assert, assertEq, expectError, finish } = createTestRunner_();
+  resetDbCache_();
+
+  const tag = Utilities.getUuid().slice(0, 8).toUpperCase();
+  const g1 = { user_id: 'TEST-T6A-' + tag, nama_guru: 'Bunga Uji', jenjang: 'SD', role: ROLES.GURU, status_akun: STATUS_AKUN.AKTIF };
+  const g2 = { user_id: 'TEST-T6B-' + tag, nama_guru: 'Anggrek Uji', jenjang: 'TK', role: ROLES.GURU, status_akun: STATUS_AKUN.AKTIF };
+  const g3 = { user_id: 'TEST-T6C-' + tag, nama_guru: 'Cempaka Uji', jenjang: 'SD', role: ROLES.GURU, status_akun: STATUS_AKUN.NONAKTIF };
+  const adminUser = { user_id: 'TEST-ADM-' + tag, nama_guru: 'Admin Uji', role: ROLES.ADMIN, status_akun: STATUS_AKUN.AKTIF };
+  const now = { tanggal: '2000-01-20', jam: '15:00:00', hari: 4, waktu: '2000-01-20 15:00:00' };
+  const rec = (u, tanggal, status, jamMasuk) => ({ attendance_id: attendanceId_(tanggal, u.user_id), user_id: u.user_id, nama_guru: u.nama_guru, tanggal: tanggal, status: status, jam_masuk: jamMasuk || '' });
+
+  try {
+    test('Rekap harian: guru aktif tanpa data = Belum absen; nonaktif hanya muncul bila punya data', () => {
+      const rows = buildDayRows_([g1, g2, g3, adminUser], [rec(g1, '2000-01-20', 'Terlambat', '07:20:00')]);
+      assertEq(rows.map(r => r.nama).join(','), 'Anggrek Uji,Bunga Uji', 'urut nama, tanpa nonaktif & admin');
+      assertEq(rows[0].status, BELUM_ABSEN, 'belum absen');
+      assertEq(rows[1].jamMasuk, '07:20:00', 'jam masuk');
+      const withOld = buildDayRows_([g1, g2, g3], [rec(g3, '2000-01-20', 'Hadir', '07:00:00'), rec({ user_id: 'X-DIHAPUS', nama_guru: 'Zaitun Lama' }, '2000-01-20', 'Izin')]);
+      assert(withOld.some(r => r.userId === g3.user_id), 'nonaktif yang punya data tetap tampil');
+      assert(withOld.some(r => r.nama === 'Zaitun Lama' && r.statusAkun === 'dihapus'), 'guru terhapus tetap tampil');
+    });
+
+    test('Ringkasan angka harian', () => {
+      const rows = buildDayRows_([g1, g2], [rec(g1, '2000-01-20', 'Terlambat', '07:20:00')]);
+      const s = summarizeDay_(rows, 2);
+      assertEq(s.hadir, 1, 'hadir termasuk terlambat');
+      assertEq(s.terlambat, 1, 'terlambat');
+      assertEq(s.tepatWaktu, 0, 'tepat waktu');
+      assertEq(s.belumAbsen, 1, 'belum absen');
+    });
+
+    test('Tren 14 hari: urut, hari kerja ditandai, jumlah benar', () => {
+      const t = buildTrend_([rec(g1, '2000-01-20', 'Hadir'), rec(g2, '2000-01-20', 'Sakit'), rec(g1, '2000-01-19', 'Tanpa Keterangan')],
+        '2000-01-20', 14, [1, 2, 3, 4, 5, 6]);
+      assertEq(t.length, 14, 'jumlah hari');
+      assertEq(t[0].tanggal, '2000-01-07', 'hari pertama');
+      assertEq(t[13].Hadir, 1, 'hadir hari terakhir');
+      assertEq(t[13].Sakit, 1, 'sakit hari terakhir');
+      assertEq(t[12]['Tanpa Keterangan'], 1, 'TK sehari sebelumnya');
+      assertEq(t.find(d => d.tanggal === '2000-01-09').hariKerja, false, 'Minggu bukan hari kerja');
+    });
+
+    test('Validasi koreksi', () => {
+      const ok = { userId: g1.user_id, tanggal: '2000-01-20', status: 'Hadir', jamMasuk: '07:05', jamPulang: '14:10', alasan: 'Lupa absen, hadir sesuai daftar piket' };
+      const v = validateCorrection_(ok, now.tanggal);
+      assertEq(v.jamMasuk, '07:05:00', 'jam dinormalkan');
+      assertEq(validateCorrection_(Object.assign({}, ok, { status: 'Sakit' }), now.tanggal).jamMasuk, '', 'Sakit mengosongkan jam');
+      expectError('VALIDATION', () => validateCorrection_(Object.assign({}, ok, { tanggal: '2000-01-21' }), now.tanggal), 'tanggal depan');
+      expectError('VALIDATION', () => validateCorrection_(Object.assign({}, ok, { jamMasuk: '' }), now.tanggal), 'Hadir tanpa jam masuk');
+      expectError('VALIDATION', () => validateCorrection_(Object.assign({}, ok, { jamPulang: '06:00' }), now.tanggal), 'pulang < masuk');
+      expectError('VALIDATION', () => validateCorrection_(Object.assign({}, ok, { alasan: 'ok' }), now.tanggal), 'alasan pendek');
+      expectError('VALIDATION', () => validateCorrection_(Object.assign({}, ok, { status: 'Cuti' }), now.tanggal), 'status tidak dikenal');
+    });
+
+    test('Koreksi: membuat data baru lalu mengubahnya, keduanya tercatat di audit log', () => {
+      insertRow_(SHEETS.USERS, Object.assign({ email: 'uji.tahap6.' + tag.toLowerCase() + '@example.invalid', created_at: now.waktu }, g1));
+      const created = correctAttendance_(adminUser, validateCorrection_({ userId: g1.user_id, tanggal: '2000-01-18', status: 'Tanpa Keterangan', alasan: 'Tidak hadir tanpa kabar' }, now.tanggal), now);
+      assertEq(created.status, 'Tanpa Keterangan', 'dibuat');
+      assertEq(created.jenjang, 'SD', 'jenjang dari USERS');
+      const fixed = correctAttendance_(adminUser, validateCorrection_({ userId: g1.user_id, tanggal: '2000-01-18', status: 'Hadir', jamMasuk: '07:00', alasan: 'Ternyata hadir, HP rusak' }, now.tanggal), now);
+      assertEq(fixed.status, 'Hadir', 'diubah');
+      assertEq(fixed.jamMasuk, '07:00:00', 'jam masuk');
+      assert(fixed.keterangan.indexOf('Koreksi admin: Ternyata hadir') === 0, 'keterangan koreksi');
+      assertEq(findRowsBy_(SHEETS.ABSENSI, 'attendance_id', attendanceId_('2000-01-18', g1.user_id)).length, 1, 'tetap satu baris');
+      const logs = readTail_(SHEETS.AUDIT_LOG, 5).filter(l => l.aktivitas === 'KOREKSI_ABSENSI' && l.user_id === adminUser.user_id);
+      assertEq(logs.length, 2, 'dua log koreksi');
+      const last = JSON.parse(logs[1].detail);
+      assertEq(last.sebelum.status, 'Tanpa Keterangan', 'audit: nilai sebelum');
+      assertEq(last.sesudah.status, 'Hadir', 'audit: nilai sesudah');
+      expectError('NOT_FOUND', () => correctAttendance_(adminUser, validateCorrection_({ userId: 'TIDAK-ADA', tanggal: '2000-01-18', status: 'Izin', alasan: 'Uji tidak ditemukan' }, now.tanggal), now), 'guru tidak ada');
+    });
+
+    test('Audit log terbaca terbaru di atas & bisa dicari', () => {
+      const logs = apiAdminAuditLog_({ q: 'ternyata hadir' });
+      assert(logs.length >= 1 && logs[0].aktivitas === 'KOREKSI_ABSENSI', 'pencarian menemukan koreksi');
+      const all = apiAdminAuditLog_({});
+      assert(all.length >= 1 && all.length <= 200, 'maksimal 200');
+      assert(all[0].waktu >= all[all.length - 1].waktu, 'terbaru di atas');
+    });
+
+    test('API dashboard wajib admin', () => {
+      assertEq(dispatch_({ action: 'adminDashboard' }, 'POST').error.code, 'SESSION_INVALID', 'tanpa sesi');
+      assertEq(dispatch_({ action: 'myHistory' }, 'POST').error.code, 'SESSION_INVALID', 'riwayat tanpa sesi');
+      const d = apiAdminDashboard_({});
+      assert(d.summary && Array.isArray(d.rows) && d.trend.length === 14, 'struktur dashboard');
+      assert(d.rows.every(r => !('latitude_masuk' in r)), 'koordinat mentah tidak dikirim');
+    });
+  } finally {
+    deleteRowsWhere_(SHEETS.ABSENSI, r => String(r.user_id).indexOf('TEST-T6') === 0);
+    deleteRowsWhere_(SHEETS.USERS, r => String(r.user_id).indexOf('TEST-T6') === 0);
+  }
+
+  finish();
+}
