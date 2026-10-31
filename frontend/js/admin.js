@@ -382,6 +382,217 @@ const Admin = (() => {
     icons();
   }
 
+  /* ======================= LAPORAN ======================= */
+
+  const rep = { mulai: null, selesai: null, jenjang: '', preset: 'bulan-ini', data: null };
+
+  function isoShift(t, days) {
+    const d = new Date(t + 'T12:00:00+07:00');
+    d.setTime(d.getTime() + days * 86400000);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d);
+  }
+
+  function presetRange(id) {
+    const today = todayWib();
+    const dow = Number(new Date(today + 'T12:00:00+07:00').getDay()) || 7; // 1 = Senin
+    const firstOfMonth = today.slice(0, 8) + '01';
+    if (id === 'hari-ini') return [today, today];
+    if (id === 'minggu-ini') return [isoShift(today, 1 - dow), today];
+    if (id === 'bulan-lalu') {
+      const lastPrev = isoShift(firstOfMonth, -1);
+      return [lastPrev.slice(0, 8) + '01', lastPrev];
+    }
+    return [firstOfMonth, today];
+  }
+
+  function reports(view) {
+    if (!rep.mulai) [rep.mulai, rep.selesai] = presetRange(rep.preset);
+    const today = todayWib();
+    const presets = [['hari-ini', 'Hari ini'], ['minggu-ini', 'Minggu ini'], ['bulan-ini', 'Bulan ini'], ['bulan-lalu', 'Bulan lalu']];
+    view.innerHTML = `
+      <div class="page-head"><div><h1>Laporan Absensi</h1><p>Rekap per guru dan ekspor ke Excel / CSV.</p></div></div>
+      <section class="card">
+        <div class="chips">${presets.map(([id, label]) => `<button class="chip ${rep.preset === id ? 'active' : ''}" data-preset="${id}">${label}</button>`).join('')}</div>
+        <form class="form report-form" id="report-form" novalidate>
+          <div class="form-row">
+            <label>Dari<input type="date" name="mulai" value="${rep.mulai}" max="${today}"></label>
+            <label>Sampai<input type="date" name="selesai" value="${rep.selesai}" max="${today}"></label>
+          </div>
+          <div class="form-row">
+            <label>Jenjang<select name="jenjang">
+              <option value="">Semua jenjang</option>
+              <option value="TK" ${rep.jenjang === 'TK' ? 'selected' : ''}>TK</option>
+              <option value="SD" ${rep.jenjang === 'SD' ? 'selected' : ''}>SD</option></select></label>
+            <label class="report-submit"><span>&nbsp;</span><button class="btn btn-primary" type="submit"><i data-lucide="refresh-cw"></i> Tampilkan</button></label>
+          </div>
+          <div class="alert alert-error" id="rep-error" hidden></div>
+        </form>
+      </section>
+      <div id="report-out"><div class="card empty"><span class="spinner spinner-dark"></span></div></div>`;
+    icons();
+
+    const form = document.getElementById('report-form');
+    view.querySelectorAll('[data-preset]').forEach(b => {
+      b.onclick = () => {
+        rep.preset = b.dataset.preset;
+        [rep.mulai, rep.selesai] = presetRange(rep.preset);
+        reports(view);
+      };
+    });
+    form.onsubmit = e => {
+      e.preventDefault();
+      rep.mulai = form.mulai.value;
+      rep.selesai = form.selesai.value;
+      rep.jenjang = form.jenjang.value;
+      rep.preset = '';
+      view.querySelectorAll('[data-preset]').forEach(x => x.classList.remove('active'));
+      loadReport(form.querySelector('[type=submit]'));
+    };
+    loadReport(null);
+  }
+
+  async function loadReport(button) {
+    const out = document.getElementById('report-out');
+    formError('rep-error', '');
+    const run = async () => {
+      try {
+        const data = await Api.call('adminReport', { mulai: rep.mulai, selesai: rep.selesai, jenjang: rep.jenjang });
+        if (!out.isConnected) return;
+        rep.data = data;
+        renderReport(out);
+      } catch (err) {
+        if (!out.isConnected) return;
+        formError('rep-error', err.message);
+        out.innerHTML = '';
+      }
+    };
+    if (button) await withLoading(button, run); else await run();
+  }
+
+  function periodLabel(d) {
+    return d.mulai === d.selesai ? fmtLong(d.mulai) : `${fmtShort(d.mulai)} – ${fmtShort(d.selesai)} ${d.selesai.slice(0, 4)}`;
+  }
+
+  function renderReport(out) {
+    const d = rep.data;
+    const t = d.totals;
+    const tile = (label, value, color) => `<div class="kpi"><div class="kpi-label">${color ? `<i class="dot" style="background:${color}"></i>` : ''}${label}</div><div class="kpi-value">${value}</div></div>`;
+    const pctClass = p => (p >= 90 ? 'st-hadir' : p >= 75 ? 'st-terlambat' : 'st-alpa');
+    out.innerHTML = `
+      <div class="stack">
+        <div class="report-bar">
+          <div><strong>${esc(periodLabel(d))}</strong><span class="muted"> · ${d.hariKerja} hari kerja${d.jenjang ? ' · ' + esc(d.jenjang) : ''}</span></div>
+          <div class="report-actions">
+            <button class="btn btn-primary btn-sm" id="exp-xlsx"><i data-lucide="file-spreadsheet"></i> Excel</button>
+            <button class="btn btn-ghost btn-sm" id="exp-csv"><i data-lucide="file-down"></i> CSV</button>
+          </div>
+        </div>
+        <div class="kpis">
+          ${tile('Hadir tepat waktu', t.hadir, SERIES[0].color)}${tile('Terlambat', t.terlambat, SERIES[1].color)}
+          ${tile('Izin', t.izin, SERIES[2].color)}${tile('Sakit', t.sakit, SERIES[3].color)}
+          ${tile('Tanpa Keterangan', t.alpa, SERIES[4].color)}${tile('Guru', t.guru, null)}
+        </div>
+        <section class="card">
+          <div class="card-head"><div><h2>Rekap per guru</h2><p>Kehadiran = (hadir + terlambat) ÷ hari kerja.</p></div></div>
+          ${d.perGuru.length ? `
+          <div class="table-scroll">
+            <table class="report-table">
+              <thead><tr><th>Nama guru</th><th class="n">Kehadiran</th><th class="n">Hadir</th><th class="n">Terlambat</th><th class="n">Izin</th><th class="n">Sakit</th><th class="n">Alpa</th><th class="n">Hari kerja</th><th>Jenjang</th></tr></thead>
+              <tbody>${d.perGuru.map(g => `
+                <tr><td class="name">${esc(g.nama)}</td>
+                  <td class="n"><span class="status-pill ${pctClass(g.persenHadir)}">${String(g.persenHadir).replace('.', ',')}%</span></td>
+                  <td class="n">${g.hadir}</td><td class="n">${g.terlambat}</td><td class="n">${g.izin}</td><td class="n">${g.sakit}</td>
+                  <td class="n">${g.alpa}${g.tanpaData ? `<span class="muted" title="Hari kerja tanpa catatan"> +${g.tanpaData}?</span>` : ''}</td>
+                  <td class="n">${g.hariKerja}</td><td>${esc(g.jenjang || '—')}</td></tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+          ${t.tanpaData ? '<p class="rekap-foot">Angka “+n?” = hari kerja tanpa catatan apa pun (misalnya sebelum penandaan otomatis aktif). Periksa dan koreksi bila perlu.</p>' : ''}`
+          : '<div class="empty">Tidak ada data guru untuk periode ini.</div>'}
+        </section>
+        <p class="muted small-note">Detail harian (jam masuk, jam pulang, jarak, keterangan) tersedia di berkas Excel/CSV.</p>
+      </div>`;
+    icons();
+    document.getElementById('exp-xlsx').onclick = e => exportXlsx(e.currentTarget);
+    document.getElementById('exp-csv').onclick = exportCsv;
+  }
+
+  function reportFileBase() {
+    const d = rep.data;
+    return `Laporan-Absensi_${d.mulai}_sd_${d.selesai}${d.jenjang ? '_' + d.jenjang : ''}`;
+  }
+
+  function sheetsData() {
+    const d = rep.data;
+    const rekap = [['Nama Guru', 'Jenjang', 'Hari Kerja', 'Hadir', 'Terlambat', 'Izin', 'Sakit', 'Tanpa Keterangan', 'Tanpa Data', 'Kehadiran (%)']]
+      .concat(d.perGuru.map(g => [g.nama, g.jenjang, g.hariKerja, g.hadir, g.terlambat, g.izin, g.sakit, g.alpa, g.tanpaData, g.persenHadir]));
+    const detail = [['Tanggal', 'Nama Guru', 'Jenjang', 'Jam Masuk', 'Jam Pulang', 'Status', 'Jarak Masuk (m)', 'Jarak Pulang (m)', 'Keterangan']]
+      .concat(d.details.map(r => [r.tanggal, r.nama, r.jenjang, r.jamMasuk, r.jamPulang, r.status,
+        r.jarakMasuk === '' ? '' : Math.round(Number(r.jarakMasuk)), r.jarakPulang === '' ? '' : Math.round(Number(r.jarakPulang)), r.keterangan]));
+    return { rekap, detail };
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  /** CSV berpemisah titik koma (sesuai Excel berbahasa Indonesia), UTF-8 dengan BOM. */
+  function exportCsv() {
+    const cell = v => {
+      let s = v === null || v === undefined ? '' : String(v);
+      if (/^[=+\-@]/.test(s)) s = "'" + s; // cegah rumus berbahaya saat dibuka di Excel
+      return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const { detail } = sheetsData();
+    const csv = '﻿' + detail.map(row => row.map(cell).join(';')).join('\r\n');
+    downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), reportFileBase() + '.csv');
+    toast('CSV detail harian diunduh.', 'success');
+  }
+
+  let xlsxLoading = null;
+  function loadSheetJs() {
+    if (window.XLSX) return Promise.resolve();
+    if (!xlsxLoading) {
+      xlsxLoading = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+        s.onload = resolve;
+        s.onerror = () => { xlsxLoading = null; reject(new Error('Gagal memuat modul Excel. Periksa koneksi internet.')); };
+        document.head.appendChild(s);
+      });
+    }
+    return xlsxLoading;
+  }
+
+  async function exportXlsx(button) {
+    await withLoading(button, async () => {
+      try {
+        await loadSheetJs();
+        const d = rep.data;
+        const { rekap, detail } = sheetsData();
+        const title = [['Laporan Absensi Guru — ' + App.state.school.schoolName], ['Periode: ' + periodLabel(d) + (d.jenjang ? ' · Jenjang ' + d.jenjang : '') + ' · ' + d.hariKerja + ' hari kerja'], []];
+        const wsRekap = XLSX.utils.aoa_to_sheet(title.concat(rekap));
+        wsRekap['!cols'] = [{ wch: 30 }, { wch: 9 }, { wch: 11 }, { wch: 8 }, { wch: 10 }, { wch: 7 }, { wch: 7 }, { wch: 17 }, { wch: 11 }, { wch: 14 }];
+        const wsDetail = XLSX.utils.aoa_to_sheet(detail);
+        wsDetail['!cols'] = [{ wch: 12 }, { wch: 30 }, { wch: 9 }, { wch: 11 }, { wch: 11 }, { wch: 17 }, { wch: 15 }, { wch: 16 }, { wch: 48 }];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, wsRekap, 'Rekap per Guru');
+        XLSX.utils.book_append_sheet(wb, wsDetail, 'Detail Harian');
+        XLSX.writeFile(wb, reportFileBase() + '.xlsx');
+        toast('Berkas Excel diunduh.', 'success');
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    });
+  }
+
   /* ======================= DATA GURU ======================= */
 
   async function users(view) {
@@ -617,6 +828,7 @@ const Admin = (() => {
     const time = (name, label, value, help) => `<label>${label}<input name="${name}" type="time" required value="${esc(value)}"><small>${help}</small></label>`;
 
     view.innerHTML = `
+      <button class="banner banner-neutral" id="go-log"><i data-lucide="scroll-text"></i>Log aktivitas — riwayat login, perubahan data, dan koreksi<i data-lucide="chevron-right"></i></button>
       <div class="grid-2">
         <div class="stack">
           <section class="card">
@@ -662,6 +874,7 @@ const Admin = (() => {
         </section>
       </div>`;
     icons();
+    document.getElementById('go-log').onclick = () => App.go('log');
     bindIdentityForm();
     bindScheduleForm();
     bindLocationForm();
@@ -763,5 +976,5 @@ const Admin = (() => {
     };
   }
 
-  return { dashboard, users, audit, settings };
+  return { dashboard, reports, users, audit, settings };
 })();

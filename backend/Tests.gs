@@ -718,6 +718,69 @@ function runLoginKodeTests() {
   finish();
 }
 
+/** Tahap 7: laporan per periode (perhitungan murni, tanpa menulis data). */
+function runTahap7Tests() {
+  const { test, assert, assertEq, expectError, finish } = createTestRunner_();
+  const hk = [1, 2, 3, 4, 5, 6];
+  const a = { user_id: 'A', nama_guru: 'Bunga', jenjang: 'SD', role: ROLES.GURU, status_akun: STATUS_AKUN.AKTIF, created_at: '1999-12-01 08:00:00' };
+  const b = { user_id: 'B', nama_guru: 'Anggrek', jenjang: 'TK', role: ROLES.GURU, status_akun: STATUS_AKUN.AKTIF, created_at: '2000-01-05 08:00:00' };
+  const c = { user_id: 'C', nama_guru: 'Cempaka', jenjang: 'SD', role: ROLES.GURU, status_akun: STATUS_AKUN.NONAKTIF, created_at: '1999-12-01 08:00:00' };
+  const r = (u, t, st, jm) => ({ user_id: u.user_id, nama_guru: u.nama_guru, tanggal: t, status: st, jam_masuk: jm || '', jam_pulang: '' });
+  // 3–9 Jan 2000: Senin–Minggu (6 hari kerja).
+  const records = [
+    r(a, '2000-01-03', 'Hadir', '07:00:00'), r(a, '2000-01-04', 'Terlambat', '07:30:00'), r(a, '2000-01-05', 'Sakit'),
+    r(a, '2000-01-06', 'Tanpa Keterangan'), r(a, '2000-01-07', 'Hadir', '07:01:00'),
+    r(b, '2000-01-05', 'Hadir', '07:02:00'), r(b, '2000-01-06', 'Izin'),
+    r({ user_id: 'X', nama_guru: 'Zaitun Lama' }, '2000-01-03', 'Hadir', '07:00:00'),
+    r(a, '2000-01-10', 'Hadir', '07:00:00'), // di luar rentang
+  ];
+  const range = { mulai: '2000-01-03', selesai: '2000-01-09', jenjang: '' };
+
+  test('Hari kerja dihitung (Minggu tidak) & hanya sampai hari ini', () => {
+    assertEq(buildReport_([a], records, range, hk, '2000-01-20').hariKerja, 6, '6 hari kerja');
+    assertEq(buildReport_([a], records, range, hk, '2000-01-05').hariKerja, 3, 'sampai hari ini saja');
+  });
+
+  test('Rekap per guru: jumlah status, tanpa data, persentase', () => {
+    const rep = buildReport_([a, b, c], records, range, hk, '2000-01-20');
+    const ga = rep.perGuru.find(g => g.userId === 'A');
+    assertEq(ga.hadir, 2, 'hadir'); assertEq(ga.terlambat, 1, 'terlambat'); assertEq(ga.sakit, 1, 'sakit'); assertEq(ga.alpa, 1, 'alpa');
+    assertEq(ga.tanpaData, 1, 'Sabtu tanpa data');
+    assertEq(ga.persenHadir, 50, '3 dari 6 hari = 50%');
+    const gb = rep.perGuru.find(g => g.userId === 'B');
+    assertEq(gb.hariKerja, 4, 'dihitung sejak terdaftar 5 Jan');
+    assertEq(gb.tanpaData, 2, '2 hari tanpa data');
+    assert(!rep.perGuru.some(g => g.userId === 'C'), 'nonaktif tanpa data tidak masuk');
+    assert(rep.perGuru.some(g => g.nama === 'Zaitun Lama'), 'guru terhapus yang punya data tetap masuk');
+    assertEq(rep.details.length, 8, 'detail hanya dalam rentang');
+    assertEq(rep.details[0].tanggal, '2000-01-03', 'detail urut tanggal');
+  });
+
+  test('Filter jenjang', () => {
+    const rep = buildReport_([a, b, c], records, Object.assign({}, range, { jenjang: 'TK' }), hk, '2000-01-20');
+    assertEq(rep.perGuru.map(g => g.nama).join(','), 'Anggrek', 'hanya TK');
+    assert(rep.details.every(d => d.jenjang === 'TK'), 'detail hanya TK');
+    assertEq(rep.totals.izin, 1, 'total izin TK');
+  });
+
+  test('Validasi rentang', () => {
+    assertEq(validateReportRange_({ mulai: '2000-01-01', selesai: '2000-01-31' }, '2000-02-01').selesai, '2000-01-31', 'valid');
+    expectError('VALIDATION', () => validateReportRange_({ mulai: '2000-01-10', selesai: '2000-01-01' }, '2000-02-01'), 'terbalik');
+    expectError('VALIDATION', () => validateReportRange_({ mulai: '2000-01-01', selesai: '2000-06-01' }, '2000-07-01'), '> 3 bulan');
+    expectError('VALIDATION', () => validateReportRange_({ mulai: '2000-03-01', selesai: '2000-03-02' }, '2000-02-01'), 'mulai di masa depan');
+    expectError('VALIDATION', () => validateReportRange_({ mulai: '2000-01-01', selesai: '2000-01-02', jenjang: 'SMP' }, '2000-02-01'), 'jenjang');
+  });
+
+  test('API laporan wajib admin & berjalan pada data nyata', () => {
+    assertEq(dispatch_({ action: 'adminReport', payload: {} }, 'POST').error.code, 'SESSION_INVALID', 'tanpa sesi');
+    const today = nowWib_().tanggal;
+    const rep = apiAdminReport_({ mulai: today.slice(0, 8) + '01', selesai: today });
+    assert(Array.isArray(rep.perGuru) && Array.isArray(rep.details), 'struktur laporan');
+  });
+
+  finish();
+}
+
 /** Tahap 6: rekap harian, tren, riwayat, koreksi absensi, audit log. */
 function runTahap6Tests() {
   const { test, assert, assertEq, expectError, finish } = createTestRunner_();

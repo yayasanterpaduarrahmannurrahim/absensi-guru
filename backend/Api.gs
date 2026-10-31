@@ -47,6 +47,7 @@ function getRoutes_() {
     adminCorrectAttendance: { auth: 'admin', handler: apiAdminCorrectAttendance_ },
     adminUpdateIdentity: { auth: 'admin', handler: apiAdminUpdateIdentity_ },
     adminAuditLog: { auth: 'admin', handler: apiAdminAuditLog_ },
+    adminReport: { auth: 'admin', handler: apiAdminReport_ },
 
     adminListUsers: { auth: 'admin', handler: apiAdminListUsers_ },
     adminCreateUser: { auth: 'admin', handler: apiAdminCreateUser_ },

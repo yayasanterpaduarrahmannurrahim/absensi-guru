@@ -82,8 +82,8 @@ Perbedaan dari rancangan awal:
 | 3 | Validasi GPS radius | Selesai — 11/11 tes, uji di lokasi uji sesuai (2026-10-31) |
 | 4 | Absen masuk & pulang, pengaturan jam kerja | Selesai — tes & uji aplikasi sesuai (2026-10-31) |
 | 5 | Izin/sakit, bukti Drive, Tanpa Keterangan otomatis | Selesai — 10/10 tes & uji aplikasi sesuai (2026-10-31) |
-| 6 | Dashboard admin & guru, rekap, koreksi, log | Ter-deploy, menunggu runTahap6Tests & uji aplikasi |
-| 7 | Laporan & ekspor Excel/CSV | — |
+| 6 | Dashboard admin & guru, rekap, koreksi, log, login kode email | Selesai — tes & uji aplikasi sesuai (2026-10-31) |
+| 7 | Laporan per periode & ekspor Excel/CSV | Ter-deploy, menunggu runTahap7Tests & uji aplikasi |
 | 8 | PWA | — |
 | 9 | Pengujian keamanan & beban | — |
 

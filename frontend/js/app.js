@@ -23,9 +23,11 @@ const App = (() => {
     ],
     admin: [
       { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard', title: 'Dashboard', render: v => Admin.dashboard(v) },
+      { id: 'laporan', icon: 'file-bar-chart', label: 'Laporan', title: 'Laporan', render: v => Admin.reports(v) },
       { id: 'pengajuan', icon: 'file-check', label: 'Pengajuan', title: 'Pengajuan Izin & Sakit', render: v => Leave.renderAdmin(v) },
       { id: 'guru', icon: 'users', label: 'Guru', title: 'Data Guru', render: v => Admin.users(v) },
-      { id: 'log', icon: 'scroll-text', label: 'Log', title: 'Log Aktivitas', render: v => Admin.audit(v) },
+      // Log tidak muncul di menu bawah HP (maks. 5 menu); dibuka dari Pengaturan.
+      { id: 'log', icon: 'scroll-text', label: 'Log', title: 'Log Aktivitas', render: v => Admin.audit(v), mobile: false },
       { id: 'pengaturan', icon: 'settings', label: 'Pengaturan', title: 'Pengaturan', render: v => Admin.settings(v) },
     ],
   };
@@ -324,7 +326,7 @@ const App = (() => {
           <main class="content" id="view"></main>
         </div>
         <nav class="bottom-nav" aria-label="Menu utama">
-          ${nav.map(n => `<button class="nav-item" data-nav="${n.id}"><i data-lucide="${n.icon}"></i><span>${n.label}</span><span class="nav-badge" data-badge="${n.id}" hidden></span></button>`).join('')}
+          ${nav.filter(n => n.mobile !== false).map(n => `<button class="nav-item" data-nav="${n.id}"><i data-lucide="${n.icon}"></i><span>${n.label}</span><span class="nav-badge" data-badge="${n.id}" hidden></span></button>`).join('')}
         </nav>
       </div>`;
 
