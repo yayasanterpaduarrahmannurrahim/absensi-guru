@@ -465,6 +465,7 @@ const Guru = (() => {
       <p class="muted small-note">Data profil dikelola oleh admin sekolah. Hubungi admin bila ada yang perlu diperbaiki.</p>
       ${Pwa.canInstall() ? '<button class="btn btn-primary btn-block" id="btn-profile-install"><i data-lucide="download"></i> Pasang aplikasi di HP</button>' : ''}
       <button class="btn btn-ghost btn-block" id="btn-profile-logout"><i data-lucide="log-out"></i> Keluar dari aplikasi</button>
+      <a class="btn btn-ghost btn-block" href="panduan.html"><i data-lucide="book-open"></i> Panduan penggunaan</a>
       <p class="muted small-note" style="text-align:center"><a href="privacy.html">Kebijakan Privasi</a></p>`;
     document.getElementById('btn-profile-logout').onclick = App.logout;
     const inst = document.getElementById('btn-profile-install');

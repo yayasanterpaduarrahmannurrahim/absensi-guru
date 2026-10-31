@@ -139,7 +139,7 @@ const App = (() => {
             </form>
 
             <div id="login-error" class="alert alert-error" role="alert" hidden></div>
-            <p class="auth-foot">TK &amp; SD · <a href="privacy.html">Kebijakan Privasi</a></p>
+            <p class="auth-foot"><a href="panduan.html">Panduan Guru</a> · <a href="privacy.html">Kebijakan Privasi</a></p>
           </section>
         </div>
       </main>`;

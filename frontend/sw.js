@@ -7,13 +7,13 @@
  *
  * Saat merilis versi baru: naikkan VERSION di sini DAN ?v= di index.html (harus sama).
  */
-const VERSION = '0.8.0';
+const VERSION = '0.9.0';
 const SHELL_CACHE = 'absensi-shell-' + VERSION;
 const RUNTIME_CACHE = 'absensi-runtime-v1';
 const V = '?v=' + VERSION;
 
 const SHELL = [
-  './', './index.html', './privacy.html', './favicon.svg', './manifest.webmanifest',
+  './', './index.html', './privacy.html', './panduan.html', './favicon.svg', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
   './css/app.css' + V,
   './js/config.js' + V, './js/api.js' + V, './js/ui.js' + V, './js/brand.js' + V, './js/geo.js' + V,
@@ -47,14 +47,16 @@ self.addEventListener('fetch', event => {
 
   // Halaman: utamakan jaringan (agar selalu versi terbaru), cadangan dari cache saat offline.
   if (req.mode === 'navigate' && url.origin === self.location.origin) {
+    // Halaman .html lain (privacy, panduan) disimpan dengan namanya sendiri; selain itu = aplikasi.
+    const page = /\/([a-z0-9-]+\.html)$/i.exec(url.pathname);
+    const key = page && page[1] !== 'index.html' ? './' + page[1] : './index.html';
     event.respondWith((async () => {
       try {
         const fresh = await fetch(req);
-        const cache = await caches.open(SHELL_CACHE);
-        cache.put(url.pathname.endsWith('privacy.html') ? './privacy.html' : './index.html', fresh.clone());
+        if (fresh.ok) (await caches.open(SHELL_CACHE)).put(key, fresh.clone());
         return fresh;
       } catch (e) {
-        const cached = await caches.match(url.pathname.endsWith('privacy.html') ? './privacy.html' : './index.html');
+        const cached = await caches.match(key);
         return cached || Response.error();
       }
     })());

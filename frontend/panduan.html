@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Panduan Guru — Absensi Guru</title>
+  <meta name="description" content="Cara memasang aplikasi, login, absen masuk & pulang, serta mengajukan izin atau sakit.">
+  <meta name="theme-color" content="#f4f7f5">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --g9: #064e35; --g7: #0f7d53; --g1: #dcf3e7; --g0: #eef9f3; --ink: #10201a; --ink2: #3a4a43; --muted: #6a7a72; --line: #e2e9e5; --bg: #f4f7f5; --warn-bg: #fef3c7; --warn: #6b3a07; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; color: var(--ink); background: var(--bg); line-height: 1.6; font-size: 15.5px; }
+    header { background: var(--g9); color: #fff; padding: calc(22px + env(safe-area-inset-top)) 16px 26px; }
+    .wrap { max-width: 720px; margin: 0 auto; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand img { width: 44px; height: 44px; border-radius: 12px; }
+    .brand span { display: block; font-size: .82rem; opacity: .8; }
+    h1 { margin: 16px 0 4px; font-size: 1.55rem; line-height: 1.25; }
+    header p { margin: 0; opacity: .85; }
+    .toc { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+    .toc a { color: #fff; text-decoration: none; font-size: .82rem; font-weight: 600; background: rgba(255,255,255,.14); padding: 5px 11px; border-radius: 999px; }
+    main { padding: 18px 16px 48px; display: grid; gap: 14px; }
+    section { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 18px; scroll-margin-top: 12px; }
+    h2 { margin: 0 0 10px; font-size: 1.12rem; display: flex; align-items: center; gap: 10px; }
+    h2 .n { width: 30px; height: 30px; border-radius: 9px; background: var(--g1); color: var(--g9); display: grid; place-items: center; font-size: .9rem; flex-shrink: 0; }
+    h3 { margin: 14px 0 6px; font-size: .98rem; color: var(--g9); }
+    ol, ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+    p { margin: 0 0 8px; }
+    .tip { background: var(--g0); border-left: 4px solid var(--g7); padding: 10px 12px; border-radius: 8px; margin-top: 10px; font-size: .92rem; }
+    .warn { background: var(--warn-bg); border-left: 4px solid #d97706; color: var(--warn); padding: 10px 12px; border-radius: 8px; margin-top: 10px; font-size: .92rem; }
+    .cta { display: block; text-align: center; background: var(--g7); color: #fff; text-decoration: none; font-weight: 700; padding: 14px; border-radius: 12px; }
+    .status { display: grid; gap: 8px; margin-top: 6px; }
+    .status div { display: flex; gap: 10px; align-items: baseline; font-size: .92rem; }
+    .pill { font-size: .76rem; font-weight: 700; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+    .p-h { background: #dcfce7; color: #166534; } .p-t { background: #fef3c7; color: #92400e; } .p-i { background: #dbeafe; color: #1e40af; }
+    .p-s { background: #fae8ff; color: #86198f; } .p-a { background: #fee2e2; color: #991b1b; }
+    details { border-top: 1px solid var(--line); padding: 10px 0; }
+    details:first-of-type { border-top: 0; }
+    summary { cursor: pointer; font-weight: 600; }
+    details p { margin: 8px 0 0; color: var(--ink2); font-size: .94rem; }
+    footer { text-align: center; color: var(--muted); font-size: .82rem; }
+    footer a { color: var(--g7); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <div class="brand"><img src="icons/icon-192.png" alt=""><div><strong>Absensi Guru</strong><span>Yayasan Arrahman Nurrahim · TK &amp; SD</span></div></div>
+      <h1>Panduan untuk Guru</h1>
+      <p>Cara memakai aplikasi absensi dari HP Anda.</p>
+      <nav class="toc" aria-label="Daftar isi">
+        <a href="#pasang">Pasang</a><a href="#login">Masuk</a><a href="#absen">Absen</a><a href="#lokasi">Lokasi GPS</a><a href="#izin">Izin/Sakit</a><a href="#tanya">Tanya jawab</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <a class="cta" href="./">Buka Aplikasi Absensi</a>
+
+    <section id="pasang">
+      <h2><span class="n">1</span>Pasang aplikasi di HP (sekali saja)</h2>
+      <h3>HP Android (Chrome)</h3>
+      <ol>
+        <li>Buka link aplikasi di <b>Chrome</b>.</li>
+        <li>Ketuk <b>Pasang</b> pada kartu “Pasang Absensi Guru”, atau ketuk menu <b>⋮</b> → <b>Instal aplikasi</b>.</li>
+        <li>Ikon hijau <b>Absensi Guru</b> muncul di layar utama. Selanjutnya buka dari ikon itu.</li>
+      </ol>
+      <h3>iPhone (Safari)</h3>
+      <ol>
+        <li>Buka link aplikasi di <b>Safari</b>.</li>
+        <li>Ketuk tombol <b>Bagikan</b> (kotak dengan panah ke atas) → <b>Tambah ke Layar Utama</b> → <b>Tambah</b>.</li>
+      </ol>
+    </section>
+
+    <section id="login">
+      <h2><span class="n">2</span>Masuk ke akun</h2>
+      <p>Gunakan email yang sudah didaftarkan admin sekolah. Ada dua cara:</p>
+      <h3>Cara A — Login dengan Google</h3>
+      <ol>
+        <li>Ketuk <b>Login dengan Google</b>, lalu pilih akun Gmail Anda.</li>
+        <li>Bila akun belum ada di HP, pilih <b>Gunakan akun lain</b> lalu masukkan email &amp; password Gmail.</li>
+      </ol>
+      <h3>Cara B — Masuk dengan kode email</h3>
+      <ol>
+        <li>Ketik email Anda di kolom <b>Email terdaftar</b> → ketuk <b>Kirim kode masuk</b>.</li>
+        <li>Buka email Anda, cari pesan <b>“Kode masuk Absensi Guru”</b> (periksa juga folder <b>Spam</b>).</li>
+        <li>Ketik 6 angka kodenya. Kode berlaku 10 menit.</li>
+      </ol>
+      <div class="tip">Setelah masuk, Anda tetap login selama 7 hari di HP tersebut.</div>
+      <div class="warn">Jangan pernah memberikan kode masuk atau password Anda kepada siapa pun, termasuk yang mengaku admin.</div>
+    </section>
+
+    <section id="absen">
+      <h2><span class="n">3</span>Absen masuk &amp; pulang</h2>
+      <ol>
+        <li>Buka aplikasi saat sudah berada di <b>area sekolah</b>. Izinkan akses lokasi bila diminta.</li>
+        <li>Tunggu kartu <b>Status lokasi</b> berwarna <b>hijau</b> (“Lokasi valid · di area sekolah”).</li>
+        <li>Ketuk tombol <b>ABSEN MASUK</b>. Jam masuk tercatat otomatis memakai jam server.</li>
+        <li>Saat pulang, ketuk <b>ABSEN PULANG</b> (aktif mulai jam pulang).</li>
+      </ol>
+      <p style="margin-top:10px">Arti status kehadiran:</p>
+      <div class="status">
+        <div><span class="pill p-h">Hadir</span>Absen masuk sebelum batas terlambat.</div>
+        <div><span class="pill p-t">Terlambat</span>Absen masuk setelah batas terlambat.</div>
+        <div><span class="pill p-i">Izin</span><span class="pill p-s">Sakit</span>Pengajuan Anda disetujui admin.</div>
+        <div><span class="pill p-a">Tanpa Keterangan</span>Tidak absen sampai absen masuk ditutup dan tidak ada izin/sakit yang disetujui.</div>
+      </div>
+      <div class="tip">Riwayat absensi Anda per bulan ada di menu <b>Riwayat</b>.</div>
+    </section>
+
+    <section id="lokasi">
+      <h2><span class="n">4</span>Bila lokasi tidak valid</h2>
+      <ul>
+        <li><b>Kartu oranye “Akurasi GPS rendah”</b> — keluar ke area terbuka atau dekat jendela, tunggu beberapa detik, lalu ketuk ikon perbarui ↻.</li>
+        <li><b>Kartu merah “Di luar area sekolah”</b> — absen hanya bisa dilakukan di dalam radius sekolah.</li>
+        <li><b>“GPS tidak aktif”</b> — nyalakan <b>Lokasi</b> di HP (tarik panel notifikasi → Lokasi).</li>
+        <li><b>“Izin lokasi ditolak”</b> — ikuti petunjuk di kartu tersebut untuk mengizinkan lokasi, lalu muat ulang.</li>
+      </ul>
+      <div class="warn">Pola lokasi yang mencurigakan, misalnya dari aplikasi pemalsu lokasi (fake GPS), dicatat untuk ditinjau admin.</div>
+    </section>
+
+    <section id="izin">
+      <h2><span class="n">5</span>Mengajukan izin atau sakit</h2>
+      <ol>
+        <li>Buka menu <b>Izin/Sakit</b> → <b>Ajukan Izin / Sakit</b>.</li>
+        <li>Pilih <b>Izin</b> atau <b>Sakit</b>, tanggal mulai &amp; selesai, lalu tulis alasannya.</li>
+        <li>Lampirkan foto surat dokter / surat izin bila ada → <b>Kirim Pengajuan</b>.</li>
+        <li>Status berubah menjadi <b>Disetujui</b> atau <b>Ditolak</b> setelah diperiksa admin. Selama masih <b>Menunggu</b>, pengajuan bisa dibatalkan.</li>
+      </ol>
+      <div class="tip">Pengajuan untuk tanggal yang sudah lewat bisa dibuat maksimal 7 hari ke belakang.</div>
+    </section>
+
+    <section id="tanya">
+      <h2><span class="n">?</span>Tanya jawab</h2>
+      <details><summary>Tombol absen abu-abu dan tidak bisa ditekan.</summary>
+        <p>Baca keterangan di bawah tombol. Biasanya lokasi belum valid, belum jam pulang, atau absen masuk sudah ditutup.</p></details>
+      <details><summary>Muncul “Email belum terdaftar”.</summary>
+        <p>Email Anda belum didaftarkan atau berbeda dengan yang didaftarkan admin. Hubungi admin sekolah.</p></details>
+      <details><summary>Kode masuk tidak datang.</summary>
+        <p>Periksa folder Spam, pastikan email yang diketik benar, lalu tunggu 60 detik sebelum mengetuk Kirim ulang.</p></details>
+      <details><summary>Lupa absen atau HP rusak.</summary>
+        <p>Hubungi admin sekolah. Admin dapat mengoreksi absensi dengan alasan yang tercatat.</p></details>
+      <details><summary>Muncul “Versi baru aplikasi tersedia”.</summary>
+        <p>Ketuk <b>Muat ulang</b> agar aplikasi memakai versi terbaru.</p></details>
+      <details><summary>Apakah lokasi saya dilacak terus?</summary>
+        <p>Tidak. Lokasi hanya dibaca saat halaman absensi terbuka dan hanya disimpan saat Anda menekan tombol absen.</p></details>
+    </section>
+
+    <footer>Butuh bantuan? Hubungi admin sekolah · <a href="privacy.html">Kebijakan Privasi</a></footer>
+  </main>
+</body>
+</html>
