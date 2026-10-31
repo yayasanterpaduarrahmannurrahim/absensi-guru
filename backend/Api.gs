@@ -20,6 +20,8 @@ function getRoutes_() {
     getPublicConfig: { auth: 'public', get: true, handler: apiGetPublicConfig_ },
 
     loginGoogle: { auth: 'public', handler: apiLoginGoogle_ },
+    requestLoginCode: { auth: 'public', handler: apiRequestLoginCode_ },
+    verifyLoginCode: { auth: 'public', handler: apiVerifyLoginCode_ },
     logout: { auth: 'user', handler: apiLogout_ },
     me: { auth: 'user', handler: apiMe_ },
 

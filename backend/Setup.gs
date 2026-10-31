@@ -67,6 +67,7 @@ function authorize() {
   SpreadsheetApp.openById(PropertiesService.getScriptProperties().getProperty(APP.PROP_SPREADSHEET_ID));
   DriveApp.getRootFolder();
   ScriptApp.getProjectTriggers();
+  console.log('Sisa kuota email hari ini: ' + MailApp.getRemainingDailyQuota());
   console.log('Semua izin sudah diberikan: ' + Session.getEffectiveUser().getEmail());
 }
 

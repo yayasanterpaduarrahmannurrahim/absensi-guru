@@ -128,7 +128,102 @@ function deleteSessionsForUser_(userId) {
     .forEach(r => removeSessionCache_(r.token_hash));
 }
 
+/* ---------- Login dengan kode email (alternatif tanpa akun Google di perangkat) ---------- */
+
+const OTP_PREFIX = 'otp_';
+const OTP_TTL_SEC = 600;          // kode berlaku 10 menit
+const OTP_RESEND_SEC = 60;        // jeda minimal kirim ulang
+const OTP_MAX_PER_HOUR = 5;       // batas kirim kode per email per jam
+const OTP_MAX_ATTEMPTS = 5;       // batas salah memasukkan kode
+
+/** Kode 6 angka dari UUID acak (bukan Math.random). */
+function generateOtp_() {
+  const n = parseInt(Utilities.getUuid().replace(/-/g, '').slice(0, 12), 16) % 1000000;
+  return String(n).padStart(6, '0');
+}
+
+function sendLoginCodeEmail_(email, nama, code) {
+  const html =
+    '<div style="font-family:Arial,sans-serif;max-width:420px;margin:auto;color:#10201a">' +
+    '<h2 style="color:#08623f;margin:0 0 8px">Kode masuk Absensi Guru</h2>' +
+    '<p>Halo ' + String(nama).replace(/[<>&"]/g, '') + ', gunakan kode berikut untuk masuk ke aplikasi:</p>' +
+    '<p style="font-size:32px;font-weight:bold;letter-spacing:8px;background:#eef9f3;padding:14px;text-align:center;border-radius:10px">' + code + '</p>' +
+    '<p style="color:#6a7a72;font-size:13px">Kode berlaku 10 menit. Jangan berikan kode ini kepada siapa pun. ' +
+    'Abaikan email ini bila Anda tidak sedang masuk ke aplikasi.</p></div>';
+  MailApp.sendEmail({
+    to: email,
+    subject: 'Kode masuk Absensi Guru: ' + code,
+    htmlBody: html,
+    body: 'Kode masuk Absensi Guru: ' + code + ' (berlaku 10 menit). Jangan berikan kode ini kepada siapa pun.',
+    name: 'Absensi Guru',
+  });
+}
+
+/**
+ * Membuat & mengirim kode login. `send` dapat diganti saat pengujian.
+ * Pesan ke frontend sama untuk email terdaftar/tidak, agar daftar email guru tidak bisa ditebak.
+ */
+function issueLoginCode_(email, send) {
+  const cache = CacheService.getScriptCache();
+  const key = OTP_PREFIX + email;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const existing = JSON.parse(cache.get(key) || 'null');
+  if (existing && nowSec - existing.sentAt < OTP_RESEND_SEC) {
+    throw new AppError('TOO_SOON', 'Tunggu ' + (OTP_RESEND_SEC - (nowSec - existing.sentAt)) + ' detik sebelum meminta kode lagi.');
+  }
+  const countKey = OTP_PREFIX + 'n_' + email;
+  const count = Number(cache.get(countKey) || 0);
+  if (count >= OTP_MAX_PER_HOUR) {
+    throw new AppError('TOO_MANY', 'Terlalu banyak permintaan kode. Coba lagi dalam 1 jam.');
+  }
+  cache.put(countKey, String(count + 1), 3600);
+
+  const user = findOneBy_(SHEETS.USERS, 'email', email);
+  if (!user || user.status_akun !== STATUS_AKUN.AKTIF) {
+    logAudit_(user ? user.user_id : '', 'KODE_LOGIN_DITOLAK', { email: email, alasan: user ? 'akun nonaktif' : 'email tidak terdaftar' });
+    // Tetap catat waktu kirim agar jeda berlaku sama untuk semua email.
+    cache.put(key, JSON.stringify({ sentAt: nowSec, hash: '', attempts: OTP_MAX_ATTEMPTS }), OTP_TTL_SEC);
+    return { sent: true };
+  }
+  const code = generateOtp_();
+  cache.put(key, JSON.stringify({ sentAt: nowSec, hash: sha256Hex_(email + ':' + code), attempts: 0 }), OTP_TTL_SEC);
+  send(email, user.nama_guru, code);
+  logAudit_(user.user_id, 'KODE_LOGIN_DIKIRIM', { email: email });
+  return { sent: true };
+}
+
+/** Memeriksa kode. Berhasil → membuat sesi seperti login Google. */
+function verifyLoginCode_(email, code) {
+  const cache = CacheService.getScriptCache();
+  const key = OTP_PREFIX + email;
+  const data = JSON.parse(cache.get(key) || 'null');
+  const invalid = new AppError('INVALID_CODE', 'Kode salah atau sudah kedaluwarsa. Minta kode baru bila perlu.');
+  if (!data || !data.hash) throw invalid;
+  if (data.attempts >= OTP_MAX_ATTEMPTS) {
+    cache.remove(key);
+    throw new AppError('TOO_MANY', 'Terlalu banyak percobaan salah. Minta kode baru.');
+  }
+  if (sha256Hex_(email + ':' + code) !== data.hash) {
+    data.attempts++;
+    const ttl = Math.max(1, OTP_TTL_SEC - (Math.floor(Date.now() / 1000) - data.sentAt));
+    cache.put(key, JSON.stringify(data), ttl);
+    throw invalid;
+  }
+  cache.remove(key); // kode sekali pakai
+  return createSessionForEmail_(email);
+}
+
 /* ---------- Handler API ---------- */
+
+function apiRequestLoginCode_(payload) {
+  return issueLoginCode_(vEmail_(payload.email, 'Email'), sendLoginCodeEmail_);
+}
+
+function apiVerifyLoginCode_(payload) {
+  const email = vEmail_(payload.email, 'Email');
+  const code = vString_(payload.code, 'Kode', { required: true, pattern: /^\d{6}$/, patternMessage: 'Kode terdiri dari 6 angka.' });
+  return verifyLoginCode_(email, code);
+}
 
 function apiLoginGoogle_(payload) {
   const google = verifyGoogleIdToken_(payload.credential);

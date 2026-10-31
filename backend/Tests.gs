@@ -650,6 +650,74 @@ function runTahap5Tests() {
   finish();
 }
 
+/** Login dengan kode email: kirim, jeda, salah/benar, sekali pakai, batas percobaan. Tidak mengirim email sungguhan. */
+function runLoginKodeTests() {
+  const { test, assert, assertEq, expectError, finish } = createTestRunner_();
+  resetDbCache_();
+  const tag = Utilities.getUuid().slice(0, 8).toLowerCase();
+  const email = 'uji.kode.' + tag + '@example.invalid';
+  const now = nowWib_().waktu;
+  const sent = [];
+  const fakeSend = (to, nama, code) => sent.push({ to: to, code: code });
+  const cache = CacheService.getScriptCache();
+  const clear = e => { cache.remove(OTP_PREFIX + e); cache.remove(OTP_PREFIX + 'n_' + e); };
+
+  insertRow_(SHEETS.USERS, { user_id: 'TEST-OTP-' + tag, nama_guru: 'Guru Kode', email: email, jenjang: 'SD', role: ROLES.GURU, status_akun: STATUS_AKUN.AKTIF, created_at: now, updated_at: now });
+  try {
+    test('Kode 6 angka dikirim ke email terdaftar; hanya hash yang disimpan', () => {
+      clear(email);
+      issueLoginCode_(email, fakeSend);
+      assertEq(sent.length, 1, 'satu email');
+      assert(/^\d{6}$/.test(sent[0].code), 'format kode');
+      const stored = cache.get(OTP_PREFIX + email);
+      assert(stored.indexOf(sent[0].code) < 0, 'kode mentah tidak tersimpan');
+    });
+
+    test('Minta ulang terlalu cepat ditolak', () => {
+      expectError('TOO_SOON', () => issueLoginCode_(email, fakeSend), 'jeda 60 detik');
+    });
+
+    test('Kode salah ditolak; kode benar membuat sesi; kode tidak bisa dipakai dua kali', () => {
+      const code = sent[0].code;
+      const wrong = code === '000000' ? '111111' : '000000';
+      expectError('INVALID_CODE', () => verifyLoginCode_(email, wrong), 'kode salah');
+      const session = verifyLoginCode_(email, code);
+      assert(/^[a-f0-9]{64}$/.test(session.token), 'token sesi');
+      assertEq(requireSession_(session.token, 'user').user.email, email, 'sesi milik guru');
+      expectError('INVALID_CODE', () => verifyLoginCode_(email, code), 'dipakai ulang');
+    });
+
+    test('5 kali salah → kode hangus', () => {
+      clear(email);
+      issueLoginCode_(email, fakeSend);
+      const code = sent[sent.length - 1].code;
+      const wrong = code === '000000' ? '111111' : '000000';
+      for (let i = 0; i < 5; i++) expectError('INVALID_CODE', () => verifyLoginCode_(email, wrong), 'salah ke-' + (i + 1));
+      expectError('TOO_MANY', () => verifyLoginCode_(email, code), 'kode benar setelah 5x salah');
+    });
+
+    test('Email tidak terdaftar: respons sama, tidak ada email terkirim, tidak bisa login', () => {
+      const other = 'tidak.terdaftar.' + tag + '@example.invalid';
+      clear(other);
+      const before = sent.length;
+      assertEq(issueLoginCode_(other, fakeSend).sent, true, 'respons sama');
+      assertEq(sent.length, before, 'tidak mengirim email');
+      expectError('INVALID_CODE', () => verifyLoginCode_(other, '123456'), 'tidak bisa login');
+      clear(other);
+    });
+
+    test('Validasi input API', () => {
+      assertEq(dispatch_({ action: 'verifyLoginCode', payload: { email: email, code: '12ab' } }, 'POST').error.code, 'VALIDATION', 'kode bukan angka');
+      assertEq(dispatch_({ action: 'requestLoginCode', payload: { email: 'bukan-email' } }, 'POST').error.code, 'VALIDATION', 'email salah');
+    });
+  } finally {
+    clear(email);
+    deleteSessionsForUser_('TEST-OTP-' + tag);
+    deleteRowsWhere_(SHEETS.USERS, u => u.user_id === 'TEST-OTP-' + tag);
+  }
+  finish();
+}
+
 /** Tahap 6: rekap harian, tren, riwayat, koreksi absensi, audit log. */
 function runTahap6Tests() {
   const { test, assert, assertEq, expectError, finish } = createTestRunner_();
