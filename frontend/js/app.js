@@ -187,8 +187,9 @@ const App = (() => {
       ${isAdmin ? `
         <nav class="tabs" aria-label="Menu">
           ${tab('beranda', 'house', 'Beranda')}
-          ${tab('pengguna', 'users', 'Kelola Pengguna')}
+          ${tab('pengguna', 'users', 'Pengguna')}
           ${tab('lokasi', 'map-pin', 'Lokasi Sekolah')}
+          ${tab('jadwal', 'clock', 'Jam Kerja')}
         </nav>` : ''}
       <main class="content" id="view"></main>`;
 
@@ -199,6 +200,7 @@ const App = (() => {
 
     if (state.tab === 'pengguna') renderUsersView();
     else if (state.tab === 'lokasi') renderSchoolLocationView();
+    else if (state.tab === 'jadwal') renderScheduleView();
     else renderHomeView();
     icons();
   }
@@ -666,6 +668,79 @@ const App = (() => {
         note.textContent = messages[err.status] || 'Gagal mengambil lokasi.';
       }
     });
+  }
+
+  /* ---------- Jam Kerja (admin) ---------- */
+
+  const NAMA_HARI = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+
+  async function renderScheduleView() {
+    const view = document.getElementById('view');
+    view.innerHTML = '<div class="card empty"><span class="spinner spinner-dark"></span></div>';
+    let s;
+    try {
+      s = await Api.call('adminGetSchedule');
+    } catch (err) {
+      view.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
+      return;
+    }
+    if (state.tab !== 'jadwal') return;
+
+    const timeField = (name, label, value, help) => `
+      <label>${label}
+        <input name="${name}" type="time" required value="${esc(value)}">
+        <small>${help}</small>
+      </label>`;
+
+    view.innerHTML = `
+      <section class="card">
+        <h2 class="card-title">Jam Kerja</h2>
+        <p class="muted">Berlaku untuk semua guru (TK &amp; SD). Perubahan langsung berlaku setelah disimpan.</p>
+        <form id="schedule-form" class="form" novalidate>
+          <div class="form-row">
+            ${timeField('jamMasuk', 'Jam masuk', s.jamMasuk, 'Jam mulai kerja.')}
+            ${timeField('batasTerlambat', 'Batas terlambat', s.batasTerlambat, 'Absen setelah jam ini = Terlambat.')}
+          </div>
+          <div class="form-row">
+            ${timeField('batasAbsenMasuk', 'Absen masuk ditutup', s.batasAbsenMasuk, 'Setelah jam ini tidak bisa absen masuk.')}
+            ${timeField('jamPulang', 'Jam pulang', s.jamPulang, 'Absen pulang mulai jam ini.')}
+          </div>
+          <fieldset class="days">
+            <legend>Hari kerja</legend>
+            ${NAMA_HARI.map((nama, i) => `
+              <label class="day-chip">
+                <input type="checkbox" name="hariKerja" value="${i + 1}" ${s.hariKerja.includes(i + 1) ? 'checked' : ''}>
+                <span>${nama}</span>
+              </label>`).join('')}
+          </fieldset>
+          <div id="schedule-error" class="alert alert-error" hidden></div>
+          <button type="submit" class="btn btn-primary"><i data-lucide="save"></i> Simpan Jam Kerja</button>
+        </form>
+      </section>`;
+    icons();
+
+    const form = document.getElementById('schedule-form');
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const errBox = document.getElementById('schedule-error');
+      errBox.hidden = true;
+      const f = new FormData(form);
+      await withLoading(form.querySelector('[type=submit]'), async () => {
+        try {
+          await Api.call('adminUpdateSchedule', {
+            jamMasuk: f.get('jamMasuk'),
+            batasTerlambat: f.get('batasTerlambat'),
+            batasAbsenMasuk: f.get('batasAbsenMasuk'),
+            jamPulang: f.get('jamPulang'),
+            hariKerja: f.getAll('hariKerja').map(Number),
+          });
+          toast('Jam kerja disimpan.', 'success');
+        } catch (err) {
+          errBox.textContent = err.message;
+          errBox.hidden = false;
+        }
+      });
+    };
   }
 
   /* ---------- Kelola Pengguna (admin) ---------- */

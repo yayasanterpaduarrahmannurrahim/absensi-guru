@@ -154,7 +154,49 @@ function performCheckOut_(user, input, now, school, schedule) {
   });
 }
 
+/** Validasi pengaturan jam kerja dari admin. Mengembalikan nilai siap simpan ke SETTINGS. */
+function validateScheduleInput_(p) {
+  const time = (v, label) => vString_(v, label, {
+    required: true,
+    pattern: /^([01]\d|2[0-3]):[0-5]\d$/,
+    patternMessage: label + ' harus berformat JJ:MM, contoh 07:00.',
+  });
+  const jamMasuk = time(p.jamMasuk, 'Jam masuk');
+  const batasTerlambat = time(p.batasTerlambat, 'Batas terlambat');
+  const batasAbsenMasuk = time(p.batasAbsenMasuk, 'Batas absen masuk');
+  const jamPulang = time(p.jamPulang, 'Jam pulang');
+  if (batasTerlambat < jamMasuk) {
+    throw new AppError('VALIDATION', 'Batas terlambat tidak boleh lebih awal dari jam masuk.');
+  }
+  if (batasAbsenMasuk < batasTerlambat) {
+    throw new AppError('VALIDATION', 'Batas absen masuk tidak boleh lebih awal dari batas terlambat.');
+  }
+  if (!Array.isArray(p.hariKerja)) throw new AppError('VALIDATION', 'Hari kerja wajib dipilih.');
+  const hari = p.hariKerja.map(h => vNumber_(h, 'Hari kerja', 1, 7))
+    .filter((h, i, arr) => Number.isInteger(h) && arr.indexOf(h) === i)
+    .sort((a, b) => a - b);
+  if (!hari.length) throw new AppError('VALIDATION', 'Pilih minimal satu hari kerja.');
+  return {
+    jam_masuk: jamMasuk,
+    batas_terlambat: batasTerlambat,
+    batas_absen_masuk: batasAbsenMasuk,
+    jam_pulang: jamPulang,
+    hari_kerja: hari.join(','),
+  };
+}
+
 /* ---------- Handler API ---------- */
+
+function apiAdminGetSchedule_() {
+  return getSchedule_();
+}
+
+function apiAdminUpdateSchedule_(payload, ctx) {
+  const values = validateScheduleInput_(payload);
+  const before = setSettings_(values);
+  logAudit_(ctx.session.user.user_id, 'UBAH_JAM_KERJA', { sebelum: before, sesudah: values });
+  return getSchedule_();
+}
 
 /** Status absensi hari ini milik pengguna yang login + jadwal + waktu server. */
 function apiGetToday_(payload, ctx) {

@@ -483,6 +483,19 @@ function runTahap4Tests() {
       assert(rows.every(r => r.user_id === user.user_id && r.attendance_id.indexOf('ATT-2000') === 0), 'semua milik pengguna uji');
     });
 
+    test('Validasi pengaturan jam kerja admin', () => {
+      const ok = { jamMasuk: '07:00', batasTerlambat: '07:15', batasAbsenMasuk: '12:00', jamPulang: '14:00', hariKerja: [6, 1, 2, 2, 3, 4, 5] };
+      const v = validateScheduleInput_(ok);
+      assertEq(v.hari_kerja, '1,2,3,4,5,6', 'hari diurutkan & tanpa duplikat');
+      assertEq(v.batas_terlambat, '07:15', 'batas terlambat');
+      expectError('VALIDATION', () => validateScheduleInput_(Object.assign({}, ok, { jamMasuk: '7:00' })), 'format jam');
+      expectError('VALIDATION', () => validateScheduleInput_(Object.assign({}, ok, { jamPulang: '24:00' })), 'jam 24:00');
+      expectError('VALIDATION', () => validateScheduleInput_(Object.assign({}, ok, { batasTerlambat: '06:50' })), 'terlambat < masuk');
+      expectError('VALIDATION', () => validateScheduleInput_(Object.assign({}, ok, { batasAbsenMasuk: '07:10' })), 'tutup < terlambat');
+      expectError('VALIDATION', () => validateScheduleInput_(Object.assign({}, ok, { hariKerja: [] })), 'tanpa hari');
+      expectError('VALIDATION', () => validateScheduleInput_(Object.assign({}, ok, { hariKerja: [8] })), 'hari 8');
+    });
+
     test('API absensi wajib login', () => {
       assertEq(dispatch_({ action: 'checkIn', payload: { latitude: -6.2, longitude: 106.8, accuracy: 5 } }, 'POST').error.code, 'SESSION_INVALID', 'checkIn tanpa sesi');
       assertEq(dispatch_({ action: 'getToday' }, 'POST').error.code, 'SESSION_INVALID', 'getToday tanpa sesi');
