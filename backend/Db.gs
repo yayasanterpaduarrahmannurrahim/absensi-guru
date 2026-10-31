@@ -183,8 +183,14 @@ function deleteRowsWhere_(name, predicate) {
   return withLock_(() => {
     const rows = readAll_(name).filter(predicate);
     const sh = getSheet_(name);
-    // Hapus dari bawah agar nomor baris di atasnya tidak bergeser.
-    rows.slice().sort((a, b) => b._row - a._row).forEach(r => sh.deleteRow(r._row));
+    // Hapus dari bawah agar nomor baris di atasnya tidak bergeser; baris berurutan dihapus sekaligus.
+    const nums = rows.map(r => r._row).sort((a, b) => b - a);
+    for (let i = 0; i < nums.length;) {
+      let j = i;
+      while (j + 1 < nums.length && nums[j + 1] === nums[j] - 1) j++;
+      sh.deleteRows(nums[j], j - i + 1);
+      i = j + 1;
+    }
     return rows;
   });
 }

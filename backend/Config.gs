@@ -8,7 +8,7 @@
 
 const APP = Object.freeze({
   NAME: 'Absensi Guru',
-  VERSION: '0.9.0',
+  VERSION: '1.0.0',
   TIMEZONE: 'Asia/Jakarta',
   // OAuth Client ID (bukan rahasia; juga dipakai frontend). Token login harus ditujukan ke ID ini.
   GOOGLE_CLIENT_ID: '786435738658-rcbo8rsdafur0u4tfgo6ig4l8j1jh4t4.apps.googleusercontent.com',
@@ -35,7 +35,14 @@ const ROLES = Object.freeze({ ADMIN: 'admin', GURU: 'guru' });
 /** Jenjang tempat guru mengajar. Admin yayasan boleh kosong. */
 const JENJANG = Object.freeze({ TK: 'TK', SD: 'SD' });
 
-const STATUS_AKUN =Object.freeze({ AKTIF: 'aktif', NONAKTIF: 'nonaktif' });
+/**
+ * Sif Sabtu per guru. '' = masuk setiap Sabtu (bawaan). 'A'/'B' = bergantian setiap minggu,
+ * acuan giliran Sif A di pengaturan `sif_sabtu_acuan`. 'libur' = tidak dijadwalkan hari Sabtu.
+ * Pada Sabtu di luar jadwal, guru tetap boleh absen bila masuk.
+ */
+const SIF_SABTU = Object.freeze({ SETIAP: '', A: 'A', B: 'B', LIBUR: 'libur' });
+
+const STATUS_AKUN = Object.freeze({ AKTIF: 'aktif', NONAKTIF: 'nonaktif' });
 
 const STATUS_HADIR = Object.freeze({
   HADIR: 'Hadir',
@@ -63,7 +70,7 @@ const SCHEMA = {
   USERS: {
     key: 'user_id',
     columns: ['user_id', 'nama_guru', 'email', 'nip', 'jenjang', 'role', 'status_akun',
-      'created_at', 'updated_at', 'last_login'],
+      'created_at', 'updated_at', 'last_login', 'sif_sabtu'],
     formats: {},
   },
   ABSENSI: {
@@ -120,6 +127,7 @@ const DEFAULT_SETTINGS = [
   ['batas_absen_masuk', '12:00', 'Setelah jam ini absen masuk ditutup; yang belum absen & tanpa izin disetujui menjadi Tanpa Keterangan'],
   ['jam_pulang', '14:00', 'Absen pulang baru dapat dilakukan mulai jam ini'],
   ['hari_kerja', '1,2,3,4,5,6', 'Hari kerja, 1=Senin ... 7=Minggu, pisahkan dengan koma'],
+  ['sif_sabtu_acuan', '2026-10-31', 'Tanggal Sabtu yang menjadi giliran Sif A; Sabtu berikutnya Sif B, dan seterusnya bergantian'],
   ['zona_waktu', 'Asia/Jakarta', 'Zona waktu sistem (WIB)'],
   ['session_ttl_jam', '168', 'Masa berlaku sesi login (jam)'],
 ];

@@ -4,6 +4,7 @@
  */
 
 const BELUM_ABSEN = 'Belum absen';
+const LIBUR_SIF = 'Libur sif';
 
 function emptyCounts_() {
   return { 'Hadir': 0, 'Terlambat': 0, 'Izin': 0, 'Sakit': 0, 'Tanpa Keterangan': 0 };
@@ -31,14 +32,15 @@ function apiMyHistory_(payload, ctx) {
 
 /* ---------- Admin: rekap harian ---------- */
 
-function adminDayRow_(u, r) {
+function adminDayRow_(u, r, offShift) {
   return {
     userId: u.user_id,
     nama: u.nama_guru,
     jenjang: u.jenjang || '',
+    sifSabtu: u.sif_sabtu || '',
     statusAkun: u.status_akun || '',
     attendanceId: r ? r.attendance_id : '',
-    status: r ? r.status : BELUM_ABSEN,
+    status: r ? r.status : (offShift ? LIBUR_SIF : BELUM_ABSEN),
     jamMasuk: r ? r.jam_masuk : '',
     jamPulang: r ? r.jam_pulang : '',
     jarakMasuk: r ? r.jarak_masuk : '',
@@ -52,10 +54,11 @@ function adminDayRow_(u, r) {
 
 /**
  * Menyusun baris rekap satu tanggal: semua guru aktif (yang belum absen ditandai
- * "Belum absen"), ditambah siapa pun yang punya data pada tanggal itu
- * (mis. guru yang kemudian dinonaktifkan/dihapus).
+ * "Belum absen", atau "Libur sif" bila Sabtu itu bukan gilirannya), ditambah siapa pun
+ * yang punya data pada tanggal itu (mis. guru yang kemudian dinonaktifkan/dihapus).
+ * `tanggal` & `schedule` opsional; tanpa keduanya sif tidak diperhitungkan.
  */
-function buildDayRows_(users, records) {
+function buildDayRows_(users, records, tanggal, schedule) {
   const byUser = {};
   records.forEach(r => { byUser[r.user_id] = r; });
   const known = {};
@@ -63,11 +66,13 @@ function buildDayRows_(users, records) {
   users.forEach(u => {
     known[u.user_id] = true;
     if (byUser[u.user_id] || (u.role === ROLES.GURU && u.status_akun === STATUS_AKUN.AKTIF)) {
-      rows.push(adminDayRow_(u, byUser[u.user_id]));
+      const offShift = !!(tanggal && schedule) && schedule.hariKerja.indexOf(dayOfWeek_(tanggal)) >= 0 &&
+        !isScheduledFor_(u, tanggal, schedule);
+      rows.push(adminDayRow_(u, byUser[u.user_id], offShift));
     }
   });
   records.filter(r => !known[r.user_id]).forEach(r => {
-    rows.push(adminDayRow_({ user_id: r.user_id, nama_guru: r.nama_guru, jenjang: '', status_akun: 'dihapus' }, r));
+    rows.push(adminDayRow_({ user_id: r.user_id, nama_guru: r.nama_guru, jenjang: '', status_akun: 'dihapus' }, r, false));
   });
   return rows.sort((a, b) => String(a.nama).localeCompare(String(b.nama), 'id'));
 }
@@ -84,6 +89,7 @@ function summarizeDay_(rows, totalGuru) {
     sakit: c['Sakit'],
     tanpaKeterangan: c['Tanpa Keterangan'],
     belumAbsen: rows.filter(r => r.status === BELUM_ABSEN).length,
+    liburSif: rows.filter(r => r.status === LIBUR_SIF).length,
   };
 }
 
@@ -106,7 +112,7 @@ function apiAdminDashboard_(payload) {
   const users = readAll_(SHEETS.USERS);
   const activeGurus = users.filter(u => u.role === ROLES.GURU && u.status_akun === STATUS_AKUN.AKTIF);
 
-  const rows = buildDayRows_(users, findRowsBy_(SHEETS.ABSENSI, 'tanggal', tanggal));
+  const rows = buildDayRows_(users, findRowsBy_(SHEETS.ABSENSI, 'tanggal', tanggal), tanggal, schedule);
 
   // Tren 14 hari: cukup membaca baris terakhir ABSENSI (data ditulis kurang lebih berurutan waktu).
   const TREND_DAYS = 14;
@@ -194,13 +200,65 @@ function correctAttendance_(adminUser, input, now) {
       attendance_id: id, guru: nama, tanggal: input.tanggal,
       sebelum: existing ? pick(existing) : null, sesudah: pick(saved), alasan: input.alasan,
     });
-    return adminDayRow_(user || { user_id: input.userId, nama_guru: nama, jenjang: '', status_akun: 'dihapus' }, saved);
+    return adminDayRow_(user || { user_id: input.userId, nama_guru: nama, jenjang: '', status_akun: 'dihapus' }, saved, false);
   });
 }
 
 function apiAdminCorrectAttendance_(payload, ctx) {
   const now = nowWib_();
   return correctAttendance_(ctx.session.user, validateCorrection_(payload, now.tanggal), now);
+}
+
+/* ---------- Admin: hapus data (mis. data uji coba) ---------- */
+
+function validateDeleteData_(p) {
+  const jenis = vEnum_(p.jenis, 'Jenis data', ['absensi', 'pengajuan', 'semua'], { required: true });
+  const mulai = parseIsoDate_(p.mulai, 'Tanggal mulai');
+  const selesai = parseIsoDate_(p.selesai, 'Tanggal selesai');
+  if (selesai < mulai) throw new AppError('VALIDATION', 'Tanggal selesai tidak boleh sebelum tanggal mulai.');
+  return { jenis: jenis, mulai: mulai, selesai: selesai, userId: vString_(p.userId, 'Guru', { max: 40 }) };
+}
+
+function deleteMatchers_(f) {
+  const user = r => !f.userId || r.user_id === f.userId;
+  return {
+    absensi: r => user(r) && r.tanggal >= f.mulai && r.tanggal <= f.selesai,
+    // Pengajuan terhapus bila rentang tanggalnya bersinggungan dengan rentang yang dipilih.
+    pengajuan: r => user(r) && r.tanggal_mulai <= f.selesai && r.tanggal_selesai >= f.mulai,
+  };
+}
+
+/**
+ * Menghapus data absensi dan/atau pengajuan dalam rentang tanggal (opsional satu guru).
+ * Tanpa `konfirmasi: "HAPUS"` hanya menghitung (pratinjau), tidak menghapus apa pun.
+ * Bukti pengajuan di Drive ikut dibuang ke sampah. AUDIT_LOG tidak pernah dihapus.
+ */
+function deleteData_(adminUser, f, confirmed) {
+  const m = deleteMatchers_(f);
+  const doAbsensi = f.jenis !== 'pengajuan';
+  const doPengajuan = f.jenis !== 'absensi';
+  if (!confirmed) {
+    return {
+      dryRun: true,
+      absensi: doAbsensi ? readAll_(SHEETS.ABSENSI).filter(m.absensi).length : 0,
+      pengajuan: doPengajuan ? readAll_(SHEETS.PENGAJUAN).filter(m.pengajuan).length : 0,
+    };
+  }
+  return withLock_(() => {
+    const absensi = doAbsensi ? deleteRowsWhere_(SHEETS.ABSENSI, m.absensi) : [];
+    const pengajuan = doPengajuan ? deleteRowsWhere_(SHEETS.PENGAJUAN, m.pengajuan) : [];
+    absensi.forEach(r => clearAttendanceMarkers_(r.attendance_id));
+    pengajuan.filter(r => r.bukti_url).forEach(r => { try { trashProofFile_(r.bukti_url); } catch (e) { /* file sudah tidak ada */ } });
+    logAudit_(adminUser.user_id, 'HAPUS_DATA', {
+      jenis: f.jenis, mulai: f.mulai, selesai: f.selesai, guru: f.userId || 'semua',
+      jumlah_absensi: absensi.length, jumlah_pengajuan: pengajuan.length,
+    });
+    return { dryRun: false, absensi: absensi.length, pengajuan: pengajuan.length };
+  });
+}
+
+function apiAdminDeleteData_(payload, ctx) {
+  return deleteData_(ctx.session.user, validateDeleteData_(payload), payload.konfirmasi === 'HAPUS');
 }
 
 /* ---------- Admin: identitas & audit log ---------- */

@@ -11,6 +11,7 @@ function publicUser_(u) {
     email: u.email,
     nip: u.nip,
     jenjang: u.jenjang,
+    sifSabtu: u.sif_sabtu || '',
     role: u.role,
     statusAkun: u.status_akun,
     lastLogin: u.last_login,
@@ -26,6 +27,7 @@ function validateUserInput_(p) {
     email: vEmail_(p.email, 'Email'),
     nip: vString_(p.nip, 'NIP', { max: 30, pattern: /^[0-9 .\-]+$/, patternMessage: 'NIP hanya boleh berisi angka.' }),
     jenjang: vEnum_(p.jenjang, 'Jenjang', [JENJANG.TK, JENJANG.SD], { required: role === ROLES.GURU }),
+    sif_sabtu: vEnum_(p.sifSabtu, 'Sif Sabtu', [SIF_SABTU.A, SIF_SABTU.B, SIF_SABTU.LIBUR], {}),
     role: role,
   };
 }

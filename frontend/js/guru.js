@@ -7,7 +7,7 @@ const Guru = (() => {
 
   const STATUS_CLASS = {
     'Hadir': 'st-hadir', 'Terlambat': 'st-terlambat', 'Izin': 'st-izin',
-    'Sakit': 'st-sakit', 'Tanpa Keterangan': 'st-alpa', 'Belum absen': 'st-belum',
+    'Sakit': 'st-sakit', 'Tanpa Keterangan': 'st-alpa', 'Belum absen': 'st-belum', 'Libur sif': 'st-libur',
   };
   const DOT = { 'Hadir': '#166534', 'Terlambat': '#e8a317', 'Izin': '#2563eb', 'Sakit': '#a21caf', 'Tanpa Keterangan': '#dc2626' };
 
@@ -226,6 +226,11 @@ const Guru = (() => {
     let hint = ph.note || '';
     let hintIcon = 'info';
     if (!hint && !locOk) { hint = 'Tombol absen aktif setelah lokasi Anda valid (di dalam radius sekolah, akurasi GPS baik).'; hintIcon = 'map-pin'; }
+    if (ph.phase === 'checkin' && t.liburSif) {
+      // Bukan giliran sif: tidak wajib, tetapi tetap boleh absen bila masuk.
+      hint = 'Hari ini bukan giliran sif Sabtu Anda. Bila tetap masuk, silakan absen seperti biasa.';
+      hintIcon = 'calendar-check';
+    }
     if (!hint && ph.phase === 'checkin') { hint = `Jam masuk ${t.schedule.jamMasuk} · terlambat setelah ${t.schedule.batasTerlambat} WIB.`; hintIcon = 'clock-3'; }
     if (ph.phase === 'done') hintIcon = 'circle-check';
     const spin = phase => (s.submitting && ph.phase === phase ? '<span class="spinner"></span>' : '');

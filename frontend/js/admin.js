@@ -16,7 +16,7 @@ const Admin = (() => {
   const STATUS_FILTERS = [
     { key: '', label: 'Semua' }, { key: 'Hadir', label: 'Hadir' }, { key: 'Terlambat', label: 'Terlambat' },
     { key: 'Izin', label: 'Izin' }, { key: 'Sakit', label: 'Sakit' }, { key: 'Tanpa Keterangan', label: 'Alpa' },
-    { key: 'Belum absen', label: 'Belum absen' },
+    { key: 'Belum absen', label: 'Belum absen' }, { key: 'Libur sif', label: 'Libur sif' },
   ];
   const ROLE_LABEL = { admin: 'Admin', guru: 'Guru' };
 
@@ -144,7 +144,7 @@ const Admin = (() => {
       ${tile('Sakit', m.sakit, SERIES[3].color)}
       ${tile('Tanpa Keterangan', m.tanpaKeterangan, SERIES[4].color)}
       ${tile('Belum absen', m.belumAbsen, '#9aa6a0', s.data.tanggal === s.data.hariIni ? 'tutup ' + s.data.schedule.batasAbsenMasuk : '')}
-      ${tile('Total guru aktif', total, null)}`;
+      ${tile('Total guru aktif', total, null, m.liburSif ? m.liburSif + ' libur sif hari ini' : '')}`;
     icons();
   }
 
@@ -628,37 +628,33 @@ const Admin = (() => {
     const gurus = s.users.filter(u => u.role === 'guru');
     const count = j => gurus.filter(u => u.jenjang === j && u.statusAkun === 'aktif').length;
     list.innerHTML = `
-      <p class="muted list-summary">${gurus.length} guru · ${count('TK')} TK aktif · ${count('SD')} SD aktif</p>
+      <p class="muted list-summary">${gurus.length} guru · ${count('TK')} TK aktif · ${count('SD')} SD aktif · ketuk nama untuk mengelola</p>
       ${rows.map(u => {
         const self = u.userId === App.state.user.userId;
         const active = u.statusAkun === 'aktif';
         return `
-          <article class="card user-row ${active ? '' : 'inactive'}">
-            <div class="avatar">${esc(initials(u.nama))}</div>
-            <div class="user-main">
+          <button class="card user-row ${active ? '' : 'inactive'}" data-user="${esc(u.userId)}">
+            <span class="avatar">${esc(initials(u.nama))}</span>
+            <span class="user-main">
               <strong>${esc(u.nama)}${self ? ' <span class="muted">(Anda)</span>' : ''}</strong>
               <span class="user-email">${esc(u.email)}</span>
-              <div class="badges">
+              <span class="badges">
                 <span class="badge badge-${esc(u.role)}">${esc(ROLE_LABEL[u.role] || u.role)}</span>
                 ${u.jenjang ? `<span class="badge">${esc(u.jenjang)}</span>` : ''}
+                ${u.sifSabtu ? `<span class="badge badge-sif">${esc(SIF_LABEL[u.sifSabtu])}</span>` : ''}
                 ${active ? '' : '<span class="badge badge-off">Nonaktif</span>'}
                 ${u.lastLogin ? '' : '<span class="badge badge-warn">Belum pernah login</span>'}
-              </div>
-            </div>
-            <div class="row-actions">
-              <button class="icon-btn" data-edit="${esc(u.userId)}" aria-label="Ubah" title="Ubah"><i data-lucide="pencil"></i></button>
-              ${self ? '' : `
-                <button class="icon-btn" data-toggle="${esc(u.userId)}" aria-label="${active ? 'Nonaktifkan' : 'Aktifkan'}" title="${active ? 'Nonaktifkan' : 'Aktifkan'}"><i data-lucide="${active ? 'user-x' : 'user-check'}"></i></button>
-                <button class="icon-btn icon-btn-danger" data-delete="${esc(u.userId)}" aria-label="Hapus" title="Hapus"><i data-lucide="trash-2"></i></button>`}
-            </div>
-          </article>`;
+              </span>
+            </span>
+            <i data-lucide="chevron-right" class="row-chevron"></i>
+          </button>`;
       }).join('')}`;
     const byId = id => s.users.find(u => u.userId === id);
-    list.querySelectorAll('[data-edit]').forEach(b => { b.onclick = () => openUserForm(byId(b.dataset.edit)); });
-    list.querySelectorAll('[data-toggle]').forEach(b => { b.onclick = () => toggleUser(b, byId(b.dataset.toggle)); });
-    list.querySelectorAll('[data-delete]').forEach(b => { b.onclick = () => deleteUser(b, byId(b.dataset.delete)); });
+    list.querySelectorAll('[data-user]').forEach(b => { b.onclick = () => openUserForm(byId(b.dataset.user)); });
     icons();
   }
+
+  const SIF_LABEL = { '': 'Setiap Sabtu', A: 'Sabtu Sif A', B: 'Sabtu Sif B', libur: 'Tidak masuk Sabtu' };
 
   function replaceUser(updated) {
     const i = s.users.findIndex(u => u.userId === updated.userId);
@@ -674,10 +670,15 @@ const Admin = (() => {
     openModal(isEdit ? 'Ubah Data Guru' : 'Tambah Guru', (body, close) => {
       body.innerHTML = `
         <form id="user-form" class="form" novalidate>
+          ${isEdit && !self ? `
+          <div class="quick-actions">
+            <button type="button" class="btn btn-ghost btn-sm" data-toggle-user><i data-lucide="${u.statusAkun === 'aktif' ? 'user-x' : 'user-check'}"></i> ${u.statusAkun === 'aktif' ? 'Nonaktifkan' : 'Aktifkan'}</button>
+            <button type="button" class="btn btn-ghost btn-sm btn-reject" data-delete-user><i data-lucide="trash-2"></i> Hapus akun</button>
+          </div>` : ''}
           <label>Nama lengkap &amp; gelar<input name="nama" required maxlength="100" value="${esc(u.nama)}" autocomplete="off" placeholder="Contoh: Fouziah, S.Pd"></label>
-          <label>Email Google<input name="email" type="email" required maxlength="254" value="${esc(u.email)}" autocomplete="off" placeholder="nama@gmail.com">
-            <small>Harus akun Google — dipakai guru untuk login.</small></label>
-          <label>NIP <span class="muted">(opsional)</span><input name="nip" inputmode="numeric" maxlength="30" value="${esc(u.nip)}" autocomplete="off"></label>
+          <label>Email<input name="email" type="email" required maxlength="254" value="${esc(u.email)}" autocomplete="off" placeholder="nama@gmail.com">
+            <small>Dipakai guru untuk login (akun Google atau kode email).</small></label>
+          <label><span>NIP <span class="muted">(opsional)</span></span><input name="nip" inputmode="numeric" maxlength="30" value="${esc(u.nip)}" autocomplete="off"></label>
           <div class="form-row">
             <label>Peran<select name="role" ${self ? 'disabled' : ''}>
               <option value="guru" ${u.role === 'guru' ? 'selected' : ''}>Guru</option>
@@ -687,6 +688,12 @@ const Admin = (() => {
               <option value="TK" ${u.jenjang === 'TK' ? 'selected' : ''}>TK</option>
               <option value="SD" ${u.jenjang === 'SD' ? 'selected' : ''}>SD</option></select></label>
           </div>
+          <label>Sif Sabtu
+            <select name="sifSabtu">
+              ${Object.keys(SIF_LABEL).map(k => `<option value="${k}" ${(u.sifSabtu || '') === k ? 'selected' : ''}>${SIF_LABEL[k]}</option>`).join('')}
+            </select>
+            <small>Untuk guru yang masuk Sabtu bergantian. Di luar gilirannya tidak ditandai Alpa, tetapi tetap bisa absen bila masuk.</small>
+          </label>
           ${isEdit && !self ? `<label>Status akun<select name="statusAkun">
             <option value="aktif" ${u.statusAkun === 'aktif' ? 'selected' : ''}>Aktif</option>
             <option value="nonaktif" ${u.statusAkun === 'nonaktif' ? 'selected' : ''}>Nonaktif</option></select></label>` : ''}
@@ -698,10 +705,14 @@ const Admin = (() => {
         </form>`;
       const form = body.querySelector('#user-form');
       body.querySelector('[data-cancel]').onclick = close;
+      const tg = body.querySelector('[data-toggle-user]');
+      if (tg) tg.onclick = () => { close(); toggleUser(null, u); };
+      const del = body.querySelector('[data-delete-user]');
+      if (del) del.onclick = () => { close(); deleteUser(null, u); };
       form.onsubmit = async e => {
         e.preventDefault();
         const f = new FormData(form);
-        const payload = { nama: f.get('nama'), email: f.get('email'), nip: f.get('nip'), role: self ? u.role : f.get('role'), jenjang: f.get('jenjang') };
+        const payload = { nama: f.get('nama'), email: f.get('email'), nip: f.get('nip'), role: self ? u.role : f.get('role'), jenjang: f.get('jenjang'), sifSabtu: f.get('sifSabtu') };
         const errBox = body.querySelector('#form-error');
         errBox.hidden = true;
         if (payload.role === 'guru' && !payload.jenjang) { errBox.textContent = 'Pilih jenjang (TK atau SD) untuk guru.'; errBox.hidden = false; return; }
@@ -723,17 +734,22 @@ const Admin = (() => {
     });
   }
 
+  /** Spinner di tombol bila ada; bila dipanggil dari panel yang sudah ditutup, cukup notifikasi. */
+  function runWithOptionalLoading(button, fn) {
+    return button ? withLoading(button, fn) : fn();
+  }
+
   async function toggleUser(button, u) {
     const activate = u.statusAkun !== 'aktif';
     const ok = await confirm(activate ? 'Aktifkan Akun' : 'Nonaktifkan Akun',
       activate ? `${u.nama} akan dapat login kembali.` : `${u.nama} tidak akan dapat login dan sesi aktifnya diakhiri. Data absensinya tetap tersimpan.`,
       activate ? 'Aktifkan' : 'Nonaktifkan', !activate);
     if (!ok) return;
-    await withLoading(button, async () => {
+    await runWithOptionalLoading(button, async () => {
       try {
         const saved = await Api.call('adminUpdateUser', {
           userId: u.userId, nama: u.nama, email: u.email, nip: u.nip, role: u.role, jenjang: u.jenjang,
-          statusAkun: activate ? 'aktif' : 'nonaktif',
+          sifSabtu: u.sifSabtu || '', statusAkun: activate ? 'aktif' : 'nonaktif',
         });
         replaceUser(saved);
         toast(activate ? 'Akun diaktifkan.' : 'Akun dinonaktifkan.', 'success');
@@ -749,7 +765,7 @@ const Admin = (() => {
       `Hapus akun ${u.nama} (${u.email})? Ia tidak bisa login lagi. Riwayat absensinya tetap tersimpan. Untuk memblokir sementara, gunakan Nonaktifkan.`,
       'Hapus', true);
     if (!ok) return;
-    await withLoading(button, async () => {
+    await runWithOptionalLoading(button, async () => {
       try {
         await Api.call('adminDeleteUser', { userId: u.userId });
         s.users = s.users.filter(x => x.userId !== u.userId);
@@ -819,9 +835,9 @@ const Admin = (() => {
 
   async function settings(view) {
     view.innerHTML = '<div class="card empty"><span class="spinner spinner-dark"></span></div>';
-    let loc, sch;
+    let loc, sch, people;
     try {
-      [loc, sch] = await Promise.all([Api.call('getLocationConfig'), Api.call('adminGetSchedule')]);
+      [loc, sch, people] = await Promise.all([Api.call('getLocationConfig'), Api.call('adminGetSchedule'), Api.call('adminListUsers')]);
     } catch (err) {
       view.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
       return;
@@ -849,6 +865,11 @@ const Admin = (() => {
               <fieldset class="days"><legend>Hari kerja</legend>
                 ${NAMA_HARI.map((n, i) => `<label class="day-chip"><input type="checkbox" name="hariKerja" value="${i + 1}" ${sch.hariKerja.includes(i + 1) ? 'checked' : ''}><span>${n}</span></label>`).join('')}
               </fieldset>
+              <label>Sabtu acuan giliran Sif A
+                <input name="sifAcuan" type="date" value="${esc(sch.sifAcuan)}">
+                <small>Sabtu ini = Sif A, Sabtu berikutnya = Sif B, dan seterusnya bergantian. Sif tiap guru diatur di menu Guru.
+                  <b>Sabtu terdekat (${esc(fmtShort(sch.sabtuBerikut))}): giliran Sif ${esc(sch.giliranSabtuBerikut)}.</b></small>
+              </label>
               <div class="alert alert-error" id="sch-error" hidden></div>
               <button class="btn btn-primary" type="submit"><i data-lucide="save"></i> Simpan Jam Kerja</button>
             </form>
@@ -874,8 +895,30 @@ const Admin = (() => {
             <button type="submit" class="btn btn-primary"><i data-lucide="save"></i> Simpan Lokasi</button>
           </form>
         </section>
-      </div>`;
+      </div>
+      <section class="card card-danger">
+        <div class="card-head"><div><h2>Hapus Data</h2><p>Misalnya data uji coba sebelum aplikasi dipakai. Tidak dapat dibatalkan.</p></div></div>
+        <form id="purge-form" class="form" novalidate>
+          <div class="form-row">
+            <label>Jenis data<select name="jenis">
+              <option value="semua">Absensi &amp; pengajuan</option>
+              <option value="absensi">Absensi saja</option>
+              <option value="pengajuan">Pengajuan izin/sakit saja</option></select></label>
+            <label>Guru<select name="userId">
+              <option value="">Semua guru</option>
+              ${people.map(p => `<option value="${esc(p.userId)}">${esc(p.nama)}</option>`).join('')}</select></label>
+          </div>
+          <div class="form-row">
+            <label>Dari tanggal<input type="date" name="mulai" required></label>
+            <label>Sampai tanggal<input type="date" name="selesai" required></label>
+          </div>
+          <small class="muted">Log aktivitas tidak ikut terhapus, sehingga jejak penghapusan tetap tercatat.</small>
+          <div class="alert alert-error" id="purge-error" hidden></div>
+          <button type="submit" class="btn btn-ghost btn-reject"><i data-lucide="search"></i> Periksa jumlah data</button>
+        </form>
+      </section>`;
     icons();
+    bindPurgeForm();
     document.getElementById('go-log').onclick = () => App.go('log');
     bindIdentityForm();
     bindScheduleForm();
@@ -886,6 +929,59 @@ const Admin = (() => {
     const el = document.getElementById(id);
     el.textContent = message || '';
     el.hidden = !message;
+  }
+
+  /** Dua langkah: hitung dulu (pratinjau), lalu hapus setelah admin mengetik HAPUS. */
+  function bindPurgeForm() {
+    const form = document.getElementById('purge-form');
+    form.onsubmit = async e => {
+      e.preventDefault();
+      formError('purge-error', '');
+      const filter = { jenis: form.jenis.value, userId: form.userId.value, mulai: form.mulai.value, selesai: form.selesai.value };
+      if (!filter.mulai || !filter.selesai) return formError('purge-error', 'Isi tanggal mulai dan selesai.');
+      const who = filter.userId ? form.userId.selectedOptions[0].textContent : 'semua guru';
+      let preview;
+      await withLoading(form.querySelector('[type=submit]'), async () => {
+        try { preview = await Api.call('adminDeleteData', filter); } catch (err) { formError('purge-error', err.message); }
+      });
+      if (!preview) return;
+      if (!preview.absensi && !preview.pengajuan) return toast('Tidak ada data yang cocok untuk dihapus.', 'info');
+
+      openModal('Konfirmasi Hapus Data', (body, close) => {
+        body.innerHTML = `
+          <p class="confirm-text">Akan dihapus permanen untuk <b>${esc(who)}</b>, ${esc(fmtShort(filter.mulai))} – ${esc(fmtShort(filter.selesai))}:</p>
+          <div class="detail-grid">
+            <div class="metric"><span>Data absensi</span><strong>${preview.absensi}</strong></div>
+            <div class="metric"><span>Pengajuan izin/sakit</span><strong>${preview.pengajuan}</strong></div>
+          </div>
+          <form class="form" id="purge-confirm" novalidate>
+            <label><span>Ketik <b>HAPUS</b> untuk melanjutkan</span><input name="k" autocomplete="off" autocapitalize="characters"></label>
+            <div class="alert alert-error" id="purge-confirm-error" hidden></div>
+            <div class="modal-actions">
+              <button type="button" class="btn btn-ghost" data-cancel>Batal</button>
+              <button type="submit" class="btn btn-danger" disabled>Hapus permanen</button>
+            </div>
+          </form>`;
+        const cf = body.querySelector('#purge-confirm');
+        const go = cf.querySelector('[type=submit]');
+        cf.k.oninput = () => { go.disabled = cf.k.value.trim().toUpperCase() !== 'HAPUS'; };
+        body.querySelector('[data-cancel]').onclick = close;
+        cf.onsubmit = async ev => {
+          ev.preventDefault();
+          await withLoading(go, async () => {
+            try {
+              const res = await Api.call('adminDeleteData', Object.assign({ konfirmasi: 'HAPUS' }, filter));
+              close();
+              toast(`Terhapus: ${res.absensi} data absensi, ${res.pengajuan} pengajuan.`, 'success');
+            } catch (err) {
+              const box = body.querySelector('#purge-confirm-error');
+              box.textContent = err.message;
+              box.hidden = false;
+            }
+          });
+        };
+      });
+    };
   }
 
   function bindIdentityForm() {
@@ -915,6 +1011,7 @@ const Admin = (() => {
             jamMasuk: f.get('jamMasuk'), batasTerlambat: f.get('batasTerlambat'),
             batasAbsenMasuk: f.get('batasAbsenMasuk'), jamPulang: f.get('jamPulang'),
             hariKerja: f.getAll('hariKerja').map(Number),
+            sifAcuan: f.get('sifAcuan'),
           });
           toast('Jam kerja disimpan.', 'success');
         } catch (err) { formError('sch-error', err.message); }

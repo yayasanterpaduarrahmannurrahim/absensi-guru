@@ -174,7 +174,7 @@ const Leave = (() => {
           <label>Alasan
             <textarea name="alasan" rows="3" maxlength="500" required placeholder="Contoh: demam tinggi, istirahat sesuai saran dokter"></textarea>
           </label>
-          <label>Bukti pendukung <span class="muted">(opsional)</span>
+          <label><span>Bukti pendukung <span class="muted">(opsional)</span></span>
             <input name="bukti" type="file" accept="image/*,application/pdf">
             <small>Foto surat dokter/surat izin, atau PDF. Foto otomatis diperkecil.</small>
           </label>
@@ -272,7 +272,7 @@ const Leave = (() => {
         <form id="decision-form" class="form" novalidate>
           <p class="confirm-text"><strong>${esc(l.nama)}</strong> — ${esc(l.jenis)}, ${esc(fmtRange(l.tanggalMulai, l.tanggalSelesai))}</p>
           ${approve ? '<p class="muted small-note">Hari kerja dalam rentang ini akan tercatat sebagai ' + esc(l.jenis) + '. Hari yang sudah diisi absen masuk tidak diubah.</p>' : ''}
-          <label>Catatan ${approve ? '<span class="muted">(opsional)</span>' : '(wajib)'}
+          <label><span>Catatan ${approve ? '<span class="muted">(opsional)</span>' : '(wajib)'}</span>
             <textarea name="catatan" rows="3" maxlength="500" ${approve ? '' : 'required'}></textarea>
           </label>
           <div id="decision-error" class="alert alert-error" hidden></div>

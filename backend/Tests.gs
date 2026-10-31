@@ -48,7 +48,7 @@ function createTestRunner_() {
  */
 function runSemuaTes() {
   const suites = ['runTahap1Tests', 'runTahap2Tests', 'runTahap3Tests', 'runTahap4Tests',
-    'runTahap5Tests', 'runTahap6Tests', 'runTahap7Tests', 'runLoginKodeTests'];
+    'runTahap5Tests', 'runTahap6Tests', 'runTahap7Tests', 'runLoginKodeTests', 'runSifHapusTests'];
   const summary = suites.map(name => {
     console.log('===== ' + name + ' =====');
     try {
@@ -889,6 +889,108 @@ function runTahap9Tests() {
   test('Pengaturan jam kerja kembali ke nilai asli', () => {
     keys.forEach(k => assertEq(getSettings_()[k], original[k], k));
   });
+  finish();
+}
+
+/** Sif Sabtu (guru SD) & hapus data. Memakai guru fiktif dan tanggal tahun 2000; data uji dihapus di akhir. */
+function runSifHapusTests() {
+  const { test, assert, assertEq, expectError, finish } = createTestRunner_();
+  resetDbCache_();
+  // Sabtu acuan Sif A = 2000-01-08. Sabtu 2000-01-15 = Sif B, 2000-01-22 = Sif A.
+  const sch = { jamMasuk: '07:00', batasTerlambat: '07:15', batasAbsenMasuk: '12:00', jamPulang: '14:00', hariKerja: [1, 2, 3, 4, 5, 6], sifAcuan: '2000-01-08' };
+  const tag = Utilities.getUuid().slice(0, 6).toUpperCase();
+  const mk = (k, sif) => ({ user_id: 'TEST-SIF-' + tag + '-' + k, nama_guru: 'Guru Sif ' + k, jenjang: 'SD', role: ROLES.GURU, status_akun: STATUS_AKUN.AKTIF, created_at: '1999-12-01 07:00:00', sif_sabtu: sif });
+  const gA = mk('A', 'A'), gB = mk('B', 'B'), gAll = mk('S', ''), gOff = mk('L', 'libur');
+  const school = { lat: -6.2088123, lng: 106.8456789, radius: 50, maxAccuracy: 30 };
+
+  try {
+    test('Giliran Sif A/B bergantian dari Sabtu acuan (maju & mundur)', () => {
+      assertEq(saturdayShift_('2000-01-08', sch.sifAcuan), 'A', 'acuan');
+      assertEq(saturdayShift_('2000-01-15', sch.sifAcuan), 'B', '+1 minggu');
+      assertEq(saturdayShift_('2000-01-22', sch.sifAcuan), 'A', '+2 minggu');
+      assertEq(saturdayShift_('2000-01-01', sch.sifAcuan), 'B', '-1 minggu');
+    });
+
+    test('Jadwal per guru: Sabtu sesuai sif, hari lain & guru tanpa sif tidak berubah', () => {
+      assert(isScheduledFor_(gA, '2000-01-08', sch) && !isScheduledFor_(gA, '2000-01-15', sch), 'Sif A');
+      assert(!isScheduledFor_(gB, '2000-01-08', sch) && isScheduledFor_(gB, '2000-01-15', sch), 'Sif B');
+      assert(isScheduledFor_(gAll, '2000-01-08', sch) && isScheduledFor_(gAll, '2000-01-15', sch), 'tanpa sif = setiap Sabtu');
+      assert(!isScheduledFor_(gOff, '2000-01-08', sch), 'tidak masuk Sabtu');
+      assert(isScheduledFor_(gB, '2000-01-10', sch), 'Senin tetap terjadwal');
+      assert(!isScheduledFor_(gAll, '2000-01-09', sch), 'Minggu tidak terjadwal');
+    });
+
+    test('Tanpa Keterangan otomatis melewati guru yang libur sif', () => {
+      const ids = scheduledGurus_([gA, gB, gAll, gOff], '2000-01-15', sch).map(u => u.user_id);
+      assertEq(ids.sort().join(','), [gB.user_id, gAll.user_id].sort().join(','), 'hanya yang terjadwal');
+    });
+
+    test('Di luar jadwal sif tetap bisa absen, dengan keterangan', () => {
+      const r = performCheckIn_(gA, { lat: school.lat + 1e-5, lng: school.lng, accuracy: 8, samples: [] },
+        { tanggal: '2000-01-15', jam: '07:05:00', hari: 6, waktu: '2000-01-15 07:05:00' }, school, sch);
+      assertEq(r.status, 'Hadir', 'status');
+      assertEq(r.keterangan, 'Masuk di luar jadwal sif Sabtu', 'keterangan');
+      const r2 = performCheckIn_(gB, { lat: school.lat + 2e-5, lng: school.lng, accuracy: 8, samples: [] },
+        { tanggal: '2000-01-15', jam: '07:06:00', hari: 6, waktu: '2000-01-15 07:06:00' }, school, sch);
+      assertEq(r2.keterangan, '', 'sesuai jadwal tanpa keterangan');
+    });
+
+    test('Rekap harian: libur sif tidak dihitung "Belum absen"', () => {
+      const rows = buildDayRows_([gA, gB, gAll, gOff], [], '2000-01-15', sch);
+      const st = {};
+      rows.forEach(r => { st[r.nama] = r.status; });
+      assertEq(st['Guru Sif A'], LIBUR_SIF, 'A libur');
+      assertEq(st['Guru Sif L'], LIBUR_SIF, 'tidak masuk Sabtu');
+      assertEq(st['Guru Sif B'], BELUM_ABSEN, 'B wajib');
+      const s = summarizeDay_(rows, 4);
+      assertEq(s.liburSif, 2, 'jumlah libur sif');
+      assertEq(s.belumAbsen, 2, 'jumlah belum absen');
+    });
+
+    test('Laporan: Sabtu di luar sif tidak dihitung, kecuali guru tetap masuk', () => {
+      const rec = (u, t, st) => ({ user_id: u.user_id, nama_guru: u.nama_guru, tanggal: t, status: st, jam_masuk: '07:00:00' });
+      // 10–22 Jan 2000: Senin–Sabtu x2 (Sabtu 15 = B, Sabtu 22 = A) + 2 hari minggu depan.
+      const recs = [rec(gA, '2000-01-15', 'Hadir'), rec(gA, '2000-01-22', 'Hadir'), rec(gB, '2000-01-15', 'Hadir')];
+      const rep = buildReport_([gA, gB], recs, { mulai: '2000-01-10', selesai: '2000-01-22', jenjang: '' }, sch, '2000-02-01');
+      const a = rep.perGuru.find(g => g.userId === gA.user_id), b = rep.perGuru.find(g => g.userId === gB.user_id);
+      assertEq(b.hariKerja, 11, 'B: 10 hari biasa + Sabtu 15');
+      assertEq(a.hariKerja, 12, 'A: 10 hari biasa + Sabtu 22 + Sabtu 15 (tetap masuk)');
+      assertEq(a.diLuarSif, 1, 'satu hari di luar sif');
+      assert(a.persenHadir <= 100 && b.persenHadir <= 100, 'persentase ≤ 100%');
+    });
+
+    test('Validasi sif guru & Sabtu acuan', () => {
+      const base = { nama: 'Guru Uji', email: 'uji.sif@example.com', role: 'guru', jenjang: 'SD' };
+      assertEq(validateUserInput_(Object.assign({ sifSabtu: 'A' }, base)).sif_sabtu, 'A', 'A');
+      assertEq(validateUserInput_(base).sif_sabtu, '', 'kosong = setiap Sabtu');
+      expectError('VALIDATION', () => validateUserInput_(Object.assign({ sifSabtu: 'C' }, base)), 'sif C');
+      const ok = { jamMasuk: '07:00', batasTerlambat: '07:15', batasAbsenMasuk: '12:00', jamPulang: '14:00', hariKerja: [1, 2, 3, 4, 5, 6] };
+      assertEq(validateScheduleInput_(Object.assign({ sifAcuan: '2026-11-07' }, ok)).sif_sabtu_acuan, '2026-11-07', 'Sabtu valid');
+      expectError('VALIDATION', () => validateScheduleInput_(Object.assign({ sifAcuan: '2026-11-06' }, ok)), 'bukan Sabtu');
+    });
+
+    test('Hapus data: pratinjau tidak menghapus; konfirmasi menghapus tepat sasaran', () => {
+      const now = nowWib_();
+      const row = (u, t) => insertRow_(SHEETS.ABSENSI, { attendance_id: attendanceId_(t, u.user_id), user_id: u.user_id, nama_guru: u.nama_guru, tanggal: t, status: 'Hadir', jam_masuk: '07:00:00' });
+      row(gAll, '2000-03-01'); row(gAll, '2000-03-02'); row(gAll, '2000-03-03'); row(gOff, '2000-03-02');
+      insertRow_(SHEETS.PENGAJUAN, { submission_id: 'SUB-T-' + tag, user_id: gAll.user_id, nama_guru: gAll.nama_guru, jenis_pengajuan: 'Izin', tanggal_mulai: '2000-03-02', tanggal_selesai: '2000-03-04', alasan: 'uji', status_persetujuan: 'Menunggu', created_at: now.waktu });
+      const f = validateDeleteData_({ jenis: 'semua', mulai: '2000-03-02', selesai: '2000-03-03', userId: gAll.user_id });
+      const dry = deleteData_({ user_id: 'TEST' }, f, false);
+      assert(dry.dryRun && dry.absensi === 2 && dry.pengajuan === 1, 'pratinjau: ' + JSON.stringify(dry));
+      assertEq(findRowsBy_(SHEETS.ABSENSI, 'user_id', gAll.user_id).length, 3, 'pratinjau tidak menghapus (3 baris guru S)');
+      const done = deleteData_({ user_id: 'TEST' }, f, true);
+      assertEq(done.absensi, 2, 'absensi terhapus');
+      assertEq(done.pengajuan, 1, 'pengajuan terhapus');
+      assertEq(findRowsBy_(SHEETS.ABSENSI, 'user_id', gAll.user_id).map(r => r.tanggal).join(','), '2000-03-01', 'di luar rentang tetap ada');
+      assertEq(findRowsBy_(SHEETS.ABSENSI, 'user_id', gOff.user_id).length, 1, 'guru lain tetap ada');
+      expectError('VALIDATION', () => validateDeleteData_({ jenis: 'audit', mulai: '2000-03-01', selesai: '2000-03-02' }), 'audit log tidak bisa dihapus');
+      assertEq(dispatch_({ action: 'adminDeleteData', payload: {} }, 'POST').error.code, 'SESSION_INVALID', 'wajib admin');
+    });
+  } finally {
+    const prefix = 'TEST-SIF-' + tag;
+    deleteRowsWhere_(SHEETS.ABSENSI, r => String(r.user_id).indexOf(prefix) === 0);
+    deleteRowsWhere_(SHEETS.PENGAJUAN, r => String(r.user_id).indexOf(prefix) === 0);
+  }
   finish();
 }
 

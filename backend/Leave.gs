@@ -199,8 +199,10 @@ function applyLeaveToAttendance_(leave, schedule, now) {
   const diterapkan = [];
   const dilewati = [];
   const keterangan = leave.jenis_pengajuan + ': ' + leave.alasan + ' (' + leave.submission_id + ')';
+  const guru = findByKey_(SHEETS.USERS, leave.user_id) || { user_id: leave.user_id };
   for (let t = leave.tanggal_mulai; t <= leave.tanggal_selesai; t = addDays_(t, 1)) {
-    if (schedule.hariKerja.indexOf(dayOfWeek_(t)) < 0) continue;
+    if (!isScheduledFor_(guru, t, schedule)) continue; // libur umum / bukan giliran sif
+
     const id = attendanceId_(t, leave.user_id);
     const existing = findByKey_(SHEETS.ABSENSI, id);
     if (!existing) {
@@ -272,6 +274,14 @@ function markAbsenteesFor_(tanggal, gurus, cutoff, now) {
 }
 
 /**
+ * Guru yang wajib hadir pada tanggal t: sudah terdaftar pada tanggal itu dan
+ * dijadwalkan (bukan libur sif Sabtu). Hanya mereka yang dapat ditandai Tanpa Keterangan.
+ */
+function scheduledGurus_(gurus, t, schedule) {
+  return gurus.filter(u => String(u.created_at).slice(0, 10) <= t && isScheduledFor_(u, t, schedule));
+}
+
+/**
  * Dipanggil trigger setiap jam. Memproses hari ini (bila sudah lewat batas absen masuk)
  * serta hari-hari yang terlewat sejak proses terakhir (maks. 7 hari, mis. saat trigger gagal).
  */
@@ -287,8 +297,7 @@ function autoMarkTanpaKeterangan() {
     const t = addDays_(now.tanggal, -i);
     if (t <= last || (i === 0 && !pastCutoff)) continue;
     if (schedule.hariKerja.indexOf(dayOfWeek_(t)) >= 0) {
-      // Guru yang baru didaftarkan setelah tanggal t tidak ditandai.
-      const eligible = gurus.filter(u => String(u.created_at).slice(0, 10) <= t);
+      const eligible = scheduledGurus_(gurus, t, schedule);
       const n = markAbsenteesFor_(t, eligible, schedule.batasAbsenMasuk, now);
       if (n) logAudit_('SYSTEM', 'OTOMATIS_TANPA_KETERANGAN', { tanggal: t, jumlah: n });
     }

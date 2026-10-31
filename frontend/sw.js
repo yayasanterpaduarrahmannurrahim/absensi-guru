@@ -7,7 +7,7 @@
  *
  * Saat merilis versi baru: naikkan VERSION di sini DAN ?v= di index.html (harus sama).
  */
-const VERSION = '0.9.0';
+const VERSION = '1.0.0';
 const SHELL_CACHE = 'absensi-shell-' + VERSION;
 const RUNTIME_CACHE = 'absensi-runtime-v1';
 const V = '?v=' + VERSION;

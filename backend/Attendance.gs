@@ -18,13 +18,36 @@ function getSchedule_() {
   const hariKerja = String(s.hari_kerja || '1,2,3,4,5,6').split(',')
     .map(x => Number(x.trim()))
     .filter(n => n >= 1 && n <= 7);
+  const acuan = String(s.sif_sabtu_acuan || '').trim();
   return {
     jamMasuk: hhmm(s.jam_masuk, '07:00'),
     batasTerlambat: hhmm(s.batas_terlambat, '07:15'),
     batasAbsenMasuk: hhmm(s.batas_absen_masuk, '12:00'),
     jamPulang: hhmm(s.jam_pulang, '14:00'),
     hariKerja: hariKerja,
+    sifAcuan: /^\d{4}-\d{2}-\d{2}$/.test(acuan) ? acuan : '2026-10-31',
   };
+}
+
+/** Giliran sif ('A' / 'B') pada hari Sabtu `tanggal`, berselang-seling mulai dari Sabtu acuan (= Sif A). */
+function saturdayShift_(tanggal, acuan) {
+  const weeks = Math.round(daysBetween_(acuan, tanggal) / 7);
+  return ((weeks % 2) + 2) % 2 === 0 ? SIF_SABTU.A : SIF_SABTU.B;
+}
+
+/**
+ * Apakah guru DIJADWALKAN bekerja pada `tanggal` (hari kerja umum + sif Sabtu pribadinya).
+ * Dipakai untuk penandaan Tanpa Keterangan, penerapan izin, rekap, dan laporan.
+ * Absen tetap diizinkan pada hari kerja umum walau di luar jadwal sif (guru yang tetap masuk).
+ */
+function isScheduledFor_(user, tanggal, schedule) {
+  const dow = dayOfWeek_(tanggal);
+  if (schedule.hariKerja.indexOf(dow) < 0) return false;
+  if (dow !== 6) return true;
+  const sif = String((user && user.sif_sabtu) || '');
+  if (sif === SIF_SABTU.LIBUR) return false;
+  if (sif === SIF_SABTU.A || sif === SIF_SABTU.B) return saturdayShift_(tanggal, schedule.sifAcuan || '2026-10-31') === sif;
+  return true;
 }
 
 function attendanceId_(tanggal, userId) {
@@ -132,7 +155,7 @@ function performCheckIn_(user, input, now, school, schedule) {
       accuracy_masuk: loc.accuracy,
       jarak_masuk: loc.distance,
       status: hm > schedule.batasTerlambat ? STATUS_HADIR.TERLAMBAT : STATUS_HADIR.HADIR,
-      keterangan: '',
+      keterangan: isScheduledFor_(user, now.tanggal, schedule) ? '' : 'Masuk di luar jadwal sif Sabtu',
       anomali: formatAnomali_('Masuk', anomalies),
       created_at: now.waktu,
       updated_at: now.waktu,
@@ -198,31 +221,42 @@ function validateScheduleInput_(p) {
   if (batasAbsenMasuk < batasTerlambat) {
     throw new AppError('VALIDATION', 'Batas absen masuk tidak boleh lebih awal dari batas terlambat.');
   }
+  let sifAcuan = '';
+  if (p.sifAcuan) {
+    sifAcuan = parseIsoDate_(p.sifAcuan, 'Sabtu acuan Sif A');
+    if (dayOfWeek_(sifAcuan) !== 6) throw new AppError('VALIDATION', 'Tanggal acuan Sif A harus hari Sabtu.');
+  }
   if (!Array.isArray(p.hariKerja)) throw new AppError('VALIDATION', 'Hari kerja wajib dipilih.');
   const hari = p.hariKerja.map(h => vNumber_(h, 'Hari kerja', 1, 7))
     .filter((h, i, arr) => Number.isInteger(h) && arr.indexOf(h) === i)
     .sort((a, b) => a - b);
   if (!hari.length) throw new AppError('VALIDATION', 'Pilih minimal satu hari kerja.');
-  return {
+  const values = {
     jam_masuk: jamMasuk,
     batas_terlambat: batasTerlambat,
     batas_absen_masuk: batasAbsenMasuk,
     jam_pulang: jamPulang,
     hari_kerja: hari.join(','),
   };
+  if (sifAcuan) values.sif_sabtu_acuan = sifAcuan;
+  return values;
 }
 
 /* ---------- Handler API ---------- */
 
 function apiAdminGetSchedule_() {
-  return getSchedule_();
+  const s = getSchedule_();
+  const today = nowWib_().tanggal;
+  // Sabtu terdekat (hari ini bila Sabtu) beserta gilirannya, untuk ditampilkan di pengaturan.
+  const nextSat = addDays_(today, (6 - dayOfWeek_(today) + 7) % 7);
+  return Object.assign({}, s, { sabtuBerikut: nextSat, giliranSabtuBerikut: saturdayShift_(nextSat, s.sifAcuan) });
 }
 
 function apiAdminUpdateSchedule_(payload, ctx) {
   const values = validateScheduleInput_(payload);
   const before = setSettings_(values);
   logAudit_(ctx.session.user.user_id, 'UBAH_JAM_KERJA', { sebelum: before, sesudah: values });
-  return getSchedule_();
+  return apiAdminGetSchedule_();
 }
 
 /** Status absensi hari ini milik pengguna yang login + jadwal + waktu server. */
@@ -230,10 +264,13 @@ function apiGetToday_(payload, ctx) {
   const now = nowWib_();
   const schedule = getSchedule_();
   const rec = findByKey_(SHEETS.ABSENSI, attendanceId_(now.tanggal, ctx.session.user.user_id));
+  const isWorkday = schedule.hariKerja.indexOf(now.hari) >= 0;
   return {
     serverNow: now.date.getTime(),
     tanggal: now.tanggal,
-    isWorkday: schedule.hariKerja.indexOf(now.hari) >= 0,
+    isWorkday: isWorkday,
+    // Hari kerja umum tetapi bukan giliran sif guru ini: tidak wajib, tetap boleh absen.
+    liburSif: isWorkday && !isScheduledFor_(ctx.session.user, now.tanggal, schedule),
     schedule: {
       jamMasuk: schedule.jamMasuk,
       batasTerlambat: schedule.batasTerlambat,

@@ -448,8 +448,19 @@ h1, h2, h3 { letter-spacing: -.01em; }
 /* Daftar umum (pengguna, audit, pengajuan) */
 .list { display: grid; gap: 8px; }
 .list-summary { margin: 0 2px; font-size: .82rem; }
-.user-row { display: flex; align-items: center; gap: 12px; padding: 12px; }
+.list > * { min-width: 0; }
+.user-row {
+  display: flex; align-items: center; gap: 12px; padding: 12px; width: 100%; text-align: left; cursor: pointer;
+  font: inherit; color: inherit;
+}
+.user-row:hover { border-color: var(--g-200); background: var(--g-50); }
 .user-row.inactive { opacity: .6; }
+.row-chevron { color: var(--muted); }
+.badge-sif { background: #e0f2fe; color: #075985; }
+.quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line-2); }
+.card-danger { border-color: #f7cdcd; }
+.card-danger h2 { color: #8c1d1d; }
+.st-libur { background: #e0f2fe; color: #075985; }
 .user-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .user-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-email { font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }

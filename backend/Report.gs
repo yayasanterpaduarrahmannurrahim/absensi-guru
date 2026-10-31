@@ -14,9 +14,16 @@ function validateReportRange_(p, today) {
 
 /**
  * Menyusun laporan. Hari kerja dihitung sampai hari ini (hari yang belum terjadi tidak dihitung).
- * "Tanpa data" = hari kerja tanpa catatan apa pun (mis. sebelum penandaan otomatis aktif).
+ * Hari kerja tiap guru mengikuti jadwalnya (sif Sabtu); bila ia tetap masuk di luar jadwal,
+ * hari itu ikut dihitung sebagai hari kerja & hadir (persentase tidak melebihi 100%).
+ * "Tanpa data" = hari kerja terjadwal tanpa catatan apa pun (mis. sebelum penandaan otomatis aktif).
+ * `scheduleOrHariKerja`: objek jadwal (getSchedule_) atau array hari kerja.
  */
-function buildReport_(users, records, range, hariKerja, today) {
+function buildReport_(users, records, range, scheduleOrHariKerja, today) {
+  const schedule = Array.isArray(scheduleOrHariKerja)
+    ? { hariKerja: scheduleOrHariKerja, sifAcuan: '' }
+    : scheduleOrHariKerja;
+  const hariKerja = schedule.hariKerja;
   const end = range.selesai < today ? range.selesai : today;
   const workdays = [];
   for (let t = range.mulai; t <= end; t = addDays_(t, 1)) {
@@ -46,20 +53,27 @@ function buildReport_(users, records, range, hariKerja, today) {
     const rs = byUser[u.user_id] || [];
     const c = countStatuses_(rs);
     const since = String(u.created_at || '').slice(0, 10);
-    const eligible = workdays.filter(t => !since || t >= since);
-    const recordedWorkdays = rs.filter(r => workdaySet[r.tanggal]).length;
+    const scheduled = workdays.filter(t => (!since || t >= since) && isScheduledFor_(u, t, schedule));
+    const scheduledSet = {};
+    scheduled.forEach(t => { scheduledSet[t] = true; });
+    // Hari di luar jadwal sif tetapi guru tetap hadir → dihitung sebagai hari kerja.
+    const extra = rs.filter(r => workdaySet[r.tanggal] && !scheduledSet[r.tanggal] &&
+      (r.status === STATUS_HADIR.HADIR || r.status === STATUS_HADIR.TERLAMBAT)).map(r => r.tanggal);
+    const eligible = scheduled.concat(extra);
+    const recordedWorkdays = rs.filter(r => scheduledSet[r.tanggal]).length;
     const hadir = c['Hadir'] + c['Terlambat'];
     return {
       userId: u.user_id,
       nama: u.nama_guru,
       jenjang: u.jenjang || '',
       hariKerja: eligible.length,
+      diLuarSif: extra.length,
       hadir: c['Hadir'],
       terlambat: c['Terlambat'],
       izin: c['Izin'],
       sakit: c['Sakit'],
       alpa: c['Tanpa Keterangan'],
-      tanpaData: Math.max(0, eligible.length - recordedWorkdays),
+      tanpaData: Math.max(0, scheduled.length - recordedWorkdays),
       persenHadir: eligible.length ? Math.round((hadir / eligible.length) * 1000) / 10 : 0,
     };
   }).sort((a, b) => String(a.nama).localeCompare(String(b.nama), 'id'));
@@ -94,5 +108,5 @@ function buildReport_(users, records, range, hariKerja, today) {
 function apiAdminReport_(payload) {
   const now = nowWib_();
   const range = validateReportRange_(payload, now.tanggal);
-  return buildReport_(readAll_(SHEETS.USERS), readAll_(SHEETS.ABSENSI), range, getSchedule_().hariKerja, now.tanggal);
+  return buildReport_(readAll_(SHEETS.USERS), readAll_(SHEETS.ABSENSI), range, getSchedule_(), now.tanggal);
 }
