@@ -85,6 +85,6 @@ Perbedaan dari rancangan awal:
 | 6 | Dashboard admin & guru, rekap, koreksi, log, login kode email | Selesai — tes & uji aplikasi sesuai (2026-10-31) |
 | 7 | Laporan per periode & ekspor Excel/CSV | Selesai (2026-10-31) |
 | 8 | PWA: manifest, ikon, Service Worker, pasang di HP | Ter-deploy, menunggu uji pasang di HP |
-| 9 | Pengujian keamanan & beban | — |
+| 9 | Pengujian keamanan & beban | Uji luar 15/15 lulus; menunggu runTahap9Tests (beban paralel) |
 
 Panduan: [docs/PANDUAN-DEPLOY.md](docs/PANDUAN-DEPLOY.md)

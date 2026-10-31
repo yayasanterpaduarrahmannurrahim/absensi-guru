@@ -88,6 +88,8 @@ function performCheckIn_(user, input, now, school, schedule) {
     throw new AppError('CHECKIN_CLOSED', 'Absen masuk sudah ditutup pukul ' + schedule.batasAbsenMasuk + ' WIB.');
   }
   const loc = validateAttendanceLocation_(user, input, school, now, 'masuk');
+  // Dibaca di luar lock agar antrean guru lain tidak tertahan oleh pembacaan riwayat.
+  const anomalies = loc.anomalies.concat(previousCoordinateAnomaly_(user.user_id, input.lat, input.lng));
 
   return withLock_(() => {
     const id = attendanceId_(now.tanggal, user.user_id);
@@ -98,7 +100,6 @@ function performCheckIn_(user, input, now, school, schedule) {
       }
       throw new AppError('HAS_STATUS', 'Anda sudah tercatat ' + existing.status + ' hari ini.');
     }
-    const anomalies = loc.anomalies.concat(previousCoordinateAnomaly_(user.user_id, input.lat, input.lng));
     const rec = insertRow_(SHEETS.ABSENSI, {
       attendance_id: id,
       user_id: user.user_id,
@@ -135,12 +136,11 @@ function performCheckOut_(user, input, now, school, schedule) {
     throw new AppError('TOO_EARLY', 'Absen pulang baru dapat dilakukan mulai pukul ' + schedule.jamPulang + ' WIB.');
   }
   const loc = validateAttendanceLocation_(user, input, school, now, 'pulang');
+  const pulang = formatAnomali_('Pulang', loc.anomalies.concat(previousCoordinateAnomaly_(user.user_id, input.lat, input.lng)));
 
   return withLock_(() => {
     const current = findByKey_(SHEETS.ABSENSI, id);
     assertCanCheckOut(current); // diperiksa ulang di dalam lock
-    const anomalies = loc.anomalies.concat(previousCoordinateAnomaly_(user.user_id, input.lat, input.lng));
-    const pulang = formatAnomali_('Pulang', anomalies);
     const updated = updateByKey_(SHEETS.ABSENSI, id, {
       jam_pulang: now.jam,
       latitude_pulang: input.lat,

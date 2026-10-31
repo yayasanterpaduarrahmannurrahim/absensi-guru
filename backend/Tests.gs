@@ -718,6 +718,149 @@ function runLoginKodeTests() {
   finish();
 }
 
+/**
+ * Tahap 9: uji keamanan & uji beban melalui Web App sungguhan (HTTP paralel dengan UrlFetchApp.fetchAll).
+ *
+ * - Membuat 21 guru uji sementara (TEST-T9-*) beserta sesinya.
+ * - Selama ±1 menit pengaturan jam diubah sementara (semua hari kerja, absen masuk ditutup 23:59,
+ *   pulang mulai 00:00) agar uji bisa berjalan kapan saja; nilai asli SELALU dikembalikan.
+ *   Jalankan di luar jam absen guru.
+ * - Semua data uji (pengguna, sesi, absensi) dihapus di akhir.
+ */
+function runTahap9Tests() {
+  const { test, assert, assertEq, finish } = createTestRunner_();
+  resetDbCache_();
+  const now = nowWib_();
+  const tag = Utilities.getUuid().slice(0, 6).toUpperCase();
+  const school = getSchoolLocation_();
+  const PARALEL = 15;
+
+  const makeUser = i => {
+    const u = {
+      user_id: 'TEST-T9-' + tag + '-' + i, nama_guru: 'Uji Beban ' + i, email: 'uji.t9.' + tag.toLowerCase() + '.' + i + '@example.invalid',
+      nip: '', jenjang: i % 2 ? 'SD' : 'TK', role: ROLES.GURU, status_akun: STATUS_AKUN.AKTIF, created_at: now.waktu, updated_at: now.waktu, last_login: '',
+    };
+    insertRow_(SHEETS.USERS, u);
+    return u;
+  };
+  const req = (action, token, payload) => ({
+    url: APP.WEBAPP_URL, method: 'post', contentType: 'text/plain;charset=utf-8', muteHttpExceptions: true, followRedirects: true,
+    payload: JSON.stringify({ action: action, token: token, payload: payload || {} }),
+  });
+  const parse = res => { try { return JSON.parse(res.getContentText()); } catch (e) { return { ok: false, error: { code: 'HTTP_' + res.getResponseCode() } }; } };
+  const call = (action, token, payload) => parse(UrlFetchApp.fetch(req(action, token, payload).url, req(action, token, payload)));
+  const loc = i => ({ latitude: school.lat + i * 2.1e-6, longitude: school.lng - i * 1.7e-6, accuracy: 8 + (i % 5) });
+  const tally = list => list.reduce((m, r) => { const k = r.ok ? 'OK' : r.error.code; m[k] = (m[k] || 0) + 1; return m; }, {});
+
+  const keys = ['hari_kerja', 'batas_absen_masuk', 'jam_pulang'];
+  invalidateSettingsCache_();
+  const original = {};
+  keys.forEach(k => { original[k] = getSettings_()[k]; });
+
+  let users = [];
+  try {
+    setSettings_({ hari_kerja: '1,2,3,4,5,6,7', batas_absen_masuk: '23:59', jam_pulang: '00:00' });
+    users = Array.from({ length: PARALEL + 6 }, (_, i) => makeUser(i));
+    const tokens = users.map(u => createSessionForEmail_(u.email).token);
+    const guruToken = tokens[PARALEL + 1];
+
+    /* ----- Keamanan ----- */
+    test('Semua aksi terlindungi menolak permintaan tanpa sesi', () => {
+      const protectedActions = Object.keys(getRoutes_()).filter(a => getRoutes_()[a].auth !== 'public');
+      const res = UrlFetchApp.fetchAll(protectedActions.map(a => req(a, '', {}))).map(parse);
+      const bocor = protectedActions.filter((a, i) => res[i].error && res[i].error.code !== 'SESSION_INVALID' || res[i].ok);
+      assertEq(bocor.join(','), '', 'aksi yang tidak menolak');
+    });
+
+    test('Token palsu / rusak ditolak', () => {
+      ['f'.repeat(64), 'abc', guruToken.slice(0, 63) + (guruToken.slice(-1) === 'a' ? 'b' : 'a'), '<script>'].forEach(t => {
+        assertEq(call('me', t).error.code, 'SESSION_INVALID', 'token ' + t.slice(0, 6));
+      });
+    });
+
+    test('Guru tidak bisa memakai satu pun fitur admin', () => {
+      const adminActions = Object.keys(getRoutes_()).filter(a => getRoutes_()[a].auth === 'admin');
+      const res = UrlFetchApp.fetchAll(adminActions.map(a => req(a, guruToken, {}))).map(parse);
+      const bocor = adminActions.filter((a, i) => !(res[i].error && res[i].error.code === 'FORBIDDEN'));
+      assertEq(bocor.join(','), '', 'aksi admin yang tidak menolak guru');
+    });
+
+    test('user_id & jam kiriman frontend diabaikan; jam dari server', () => {
+      const victim = users[PARALEL + 2];
+      const r = call('checkIn', tokens[PARALEL + 3], Object.assign({ user_id: victim.user_id, userId: victim.user_id, jam: '06:00:00', tanggal: '2000-01-01' }, loc(40)));
+      assert(r.ok, 'absen gagal: ' + JSON.stringify(r.error));
+      const row = findByKey_(SHEETS.ABSENSI, attendanceId_(now.tanggal, users[PARALEL + 3].user_id));
+      assert(row, 'tercatat atas nama pemilik token');
+      assertEq(findByKey_(SHEETS.ABSENSI, attendanceId_(now.tanggal, victim.user_id)), null, 'korban tidak tercatat');
+      assert(row.jam_masuk !== '06:00:00' && Math.abs(wibNoon_(now.tanggal) - wibNoon_(row.tanggal)) === 0, 'jam & tanggal dari server');
+    });
+
+    test('Lokasi palsu / di luar radius / akurasi buruk / data rusak ditolak', () => {
+      const t = tokens[PARALEL + 4];
+      assertEq(call('checkIn', t, { latitude: school.lat + 0.01, longitude: school.lng, accuracy: 5 }).error.code, 'LOCATION_INVALID', '±1 km');
+      assertEq(call('checkIn', t, { latitude: school.lat, longitude: school.lng, accuracy: 500 }).error.code, 'LOCATION_INVALID', 'akurasi 500 m');
+      assertEq(call('checkIn', t, { latitude: 'NaN', longitude: school.lng, accuracy: 5 }).error.code, 'VALIDATION', 'NaN');
+      assertEq(call('checkIn', t, { latitude: 1e309, longitude: school.lng, accuracy: 5 }).error.code, 'VALIDATION', 'Infinity');
+      assertEq(findByKey_(SHEETS.ABSENSI, attendanceId_(now.tanggal, users[PARALEL + 4].user_id)), null, 'tidak tersimpan');
+    });
+
+    test('Riwayat hanya berisi data milik sendiri', () => {
+      const r = call('myHistory', tokens[PARALEL + 3], {});
+      assert(r.ok && r.data.records.length === 1, 'hanya 1 baris milik sendiri, didapat ' + (r.data && r.data.records.length));
+      const other = call('myHistory', tokens[PARALEL + 5], {});
+      assertEq(other.data.records.length, 0, 'guru lain tidak melihat data siapa pun');
+    });
+
+    /* ----- Beban & absen ganda ----- */
+    let timing = {};
+    test(PARALEL + ' guru absen masuk BERSAMAAN: semua tercatat, tidak ada yang hilang/ganda', () => {
+      const t0 = Date.now();
+      const res = UrlFetchApp.fetchAll(users.slice(0, PARALEL).map((u, i) => req('checkIn', tokens[i], loc(i)))).map(parse);
+      timing.masuk = Date.now() - t0;
+      const c = tally(res);
+      assertEq(c.OK || 0, PARALEL, 'berhasil (rincian ' + JSON.stringify(c) + ')');
+      const rows = findRowsBy_(SHEETS.ABSENSI, 'tanggal', now.tanggal).filter(r => String(r.user_id).indexOf('TEST-T9-' + tag) === 0 && r.jam_masuk);
+      const ids = rows.map(r => r.user_id);
+      assertEq(new Set(ids).size, ids.length, 'tidak ada baris ganda');
+      assert(users.slice(0, PARALEL).every(u => ids.indexOf(u.user_id) >= 0), 'semua guru tercatat');
+    });
+
+    test('6 absen masuk sekaligus dari guru yang sama → tepat 1 berhasil', () => {
+      const i = PARALEL;
+      const res = UrlFetchApp.fetchAll([0, 1, 2, 3, 4, 5].map(k => req('checkIn', tokens[i], loc(i + k)))).map(parse);
+      const c = tally(res);
+      assertEq(c.OK || 0, 1, 'berhasil (rincian ' + JSON.stringify(c) + ')');
+      assertEq(c.ALREADY_CHECKED_IN || 0, 5, 'ditolak sebagai ganda');
+      assertEq(findRowsBy_(SHEETS.ABSENSI, 'attendance_id', attendanceId_(now.tanggal, users[i].user_id)).length, 1, 'tepat 1 baris');
+    });
+
+    test(PARALEL + ' guru absen pulang BERSAMAAN + percobaan pulang ganda', () => {
+      const t0 = Date.now();
+      const list = users.slice(0, PARALEL).map((u, i) => req('checkOut', tokens[i], loc(i + 50)));
+      list.push(req('checkOut', tokens[0], loc(99)), req('checkOut', tokens[1], loc(98))); // ganda
+      const res = UrlFetchApp.fetchAll(list).map(parse);
+      timing.pulang = Date.now() - t0;
+      const c = tally(res);
+      assertEq(c.OK || 0, PARALEL, 'pulang berhasil (rincian ' + JSON.stringify(c) + ')');
+      assertEq(c.ALREADY_CHECKED_OUT || 0, 2, 'pulang ganda ditolak');
+      const rows = findRowsBy_(SHEETS.ABSENSI, 'tanggal', now.tanggal).filter(r => String(r.user_id).indexOf('TEST-T9-' + tag) === 0);
+      assert(rows.filter(r => r.jam_pulang).length === PARALEL, 'jam pulang tercatat untuk semua');
+      console.log('Waktu ' + PARALEL + ' absen masuk paralel: ' + (timing.masuk / 1000).toFixed(1) + ' dtk; pulang: ' + (timing.pulang / 1000).toFixed(1) + ' dtk.');
+    });
+  } finally {
+    setSettings_(original);
+    const prefix = 'TEST-T9-' + tag;
+    deleteRowsWhere_(SHEETS.ABSENSI, r => String(r.user_id).indexOf(prefix) === 0);
+    deleteRowsWhere_(SHEETS.SESSIONS, r => String(r.user_id).indexOf(prefix) === 0);
+    deleteRowsWhere_(SHEETS.USERS, r => String(r.user_id).indexOf(prefix) === 0);
+    invalidateSettingsCache_();
+  }
+  test('Pengaturan jam kerja kembali ke nilai asli', () => {
+    keys.forEach(k => assertEq(getSettings_()[k], original[k], k));
+  });
+  finish();
+}
+
 /** Tahap 7: laporan per periode (perhitungan murni, tanpa menulis data). */
 function runTahap7Tests() {
   const { test, assert, assertEq, expectError, finish } = createTestRunner_();

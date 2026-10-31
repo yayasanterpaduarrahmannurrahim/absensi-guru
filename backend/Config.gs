@@ -8,12 +8,15 @@
 
 const APP = Object.freeze({
   NAME: 'Absensi Guru',
-  VERSION: '0.7.0',
+  VERSION: '0.9.0',
   TIMEZONE: 'Asia/Jakarta',
   // OAuth Client ID (bukan rahasia; juga dipakai frontend). Token login harus ditujukan ke ID ini.
   GOOGLE_CLIENT_ID: '786435738658-rcbo8rsdafur0u4tfgo6ig4l8j1jh4t4.apps.googleusercontent.com',
   PROP_SPREADSHEET_ID: 'SPREADSHEET_ID',
-  LOCK_TIMEOUT_MS: 15000,
+  // Batas antre kunci tulis. Saat banyak guru absen bersamaan, permintaan menunggu giliran.
+  LOCK_TIMEOUT_MS: 25000,
+  // URL Web App (publik, sama dengan frontend). Dipakai uji beban untuk memanggil diri sendiri secara paralel.
+  WEBAPP_URL: 'https://script.google.com/macros/s/AKfycbz0k7BXb-MW3kfeMnWcZnJj7Wy-EFc2lnBD5-mBOPb5mR16anCNx2bQRMnL0D8isdCBvg/exec',
   // Cukup untuk bukti izin (foto terkompresi/PDF ≤ 2,5 MB dalam base64).
   MAX_REQUEST_BYTES: 4 * 1024 * 1024,
 });

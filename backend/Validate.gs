@@ -9,6 +9,10 @@
  */
 function vString_(value, label, opts) {
   const o = opts || {};
+  // Hanya teks/angka yang diterima; array/objek/boolean tidak diubah diam-diam menjadi teks.
+  if (value !== undefined && value !== null && typeof value !== 'string' && typeof value !== 'number') {
+    throw new AppError('VALIDATION', label + ' tidak valid.');
+  }
   const s = value === undefined || value === null ? '' : String(value).trim();
   if (!s) {
     if (o.required) throw new AppError('VALIDATION', label + ' wajib diisi.');
@@ -43,7 +47,7 @@ function vEmail_(value, label) {
   return vString_(value, label, {
     required: true,
     max: 254,
-    pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+    pattern: /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/,
     patternMessage: 'Format email tidak valid.',
   }).toLowerCase();
 }
