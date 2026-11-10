@@ -1062,10 +1062,10 @@ const Admin = (() => {
             </div>
             <a id="maps-link" class="small-link" target="_blank" rel="noopener" hidden><i data-lucide="external-link"></i> Periksa titik di Google Maps</a>
             <div class="form-row">
-              <label>Radius (meter)<input name="radius" type="number" inputmode="numeric" min="10" max="1000" value="${esc(loc.radius)}"></label>
-              <label>Batas akurasi GPS (m)<input name="maxAccuracy" type="number" inputmode="numeric" min="5" max="100" value="${esc(loc.maxAccuracy)}"></label>
+              <label>Radius (meter)<input name="radius" type="number" inputmode="numeric" min="10" max="200" value="${esc(loc.radius)}"></label>
+              <label>Batas akurasi GPS (m)<input name="maxAccuracy" type="number" inputmode="numeric" min="5" max="200" value="${esc(loc.maxAccuracy)}"></label>
             </div>
-            <small class="muted">Default radius 50 m dan akurasi 30 m.</small>
+            <small class="muted">Default radius 50 m dan akurasi 30 m (keduanya maksimal 200 m). Batas akurasi yang longgar membuat absen lebih mudah, tetapi lokasi kurang pasti.</small>
             <div class="alert alert-error" id="loc-error" hidden></div>
             <button type="submit" class="btn btn-primary"><i data-lucide="save"></i> Simpan Lokasi</button>
           </form>

@@ -149,8 +149,8 @@ function validateLocationSettings_(p) {
   return {
     school_latitude: lat.toFixed(7),
     school_longitude: lng.toFixed(7),
-    radius_meter: String(Math.round(vNumber_(p.radius, 'Radius', 10, 1000))),
-    max_accuracy_meter: String(Math.round(vNumber_(p.maxAccuracy, 'Batas akurasi GPS', 5, 100))),
+    radius_meter: String(Math.round(vNumber_(p.radius, 'Radius', 10, 200))),
+    max_accuracy_meter: String(Math.round(vNumber_(p.maxAccuracy, 'Batas akurasi GPS', 5, 200))),
   };
 }
 

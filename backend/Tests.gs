@@ -379,7 +379,10 @@ function runTahap3Tests() {
   test('Validasi pengaturan lokasi admin', () => {
     expectError('VALIDATION', () => validateLocationSettings_({ latitude: -6.2, longitude: 106.8456789, radius: 50, maxAccuracy: 30 }), 'presisi rendah');
     expectError('VALIDATION', () => validateLocationSettings_({ latitude: -6.2088123, longitude: 106.8456789, radius: 5, maxAccuracy: 30 }), 'radius < 10');
-    expectError('VALIDATION', () => validateLocationSettings_({ latitude: -6.2088123, longitude: 106.8456789, radius: 50, maxAccuracy: 500 }), 'akurasi > 100');
+    expectError('VALIDATION', () => validateLocationSettings_({ latitude: -6.2088123, longitude: 106.8456789, radius: 50, maxAccuracy: 201 }), 'akurasi > 200');
+    expectError('VALIDATION', () => validateLocationSettings_({ latitude: -6.2088123, longitude: 106.8456789, radius: 201, maxAccuracy: 30 }), 'radius > 200');
+    const max = validateLocationSettings_({ latitude: -6.2088123, longitude: 106.8456789, radius: 200, maxAccuracy: 200 });
+    assertEq(max.radius_meter + '/' + max.max_accuracy_meter, '200/200', 'batas 200 m diterima');
     const v = validateLocationSettings_({ latitude: '-6,20881234', longitude: '106.8456789', radius: '50', maxAccuracy: 30 });
     assertEq(v.school_latitude, '-6.2088123', 'koma desimal & 7 digit');
   });

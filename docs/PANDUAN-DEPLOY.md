@@ -123,7 +123,7 @@ link **Periksa titik di Google Maps**, lalu ketuk **Simpan Lokasi**.
 
 ## Mengatur radius 50 meter
 
-Radius diatur di tab **Lokasi Sekolah** (default `50`, rentang 10–1000 meter). Pilih titik pusat yang
+Radius diatur di tab **Lokasi Sekolah** (default `50`, rentang 10–200 meter; batas akurasi 5–200 meter). Pilih titik pusat yang
 benar-benar berada di tengah area sekolah. Jika gedung sekolah lebih panjang dari 100 meter,
 naikkan radius secukupnya, karena GPS di dalam gedung bisa meleset 10–30 meter.
 Baris `max_accuracy_meter` (default `30`) menentukan akurasi GPS terburuk yang masih diterima.
