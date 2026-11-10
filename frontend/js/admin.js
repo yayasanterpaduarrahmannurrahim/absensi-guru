@@ -322,59 +322,77 @@ const Admin = (() => {
         ${r.anomali ? `<div class="note-box warn"><strong>Anomali lokasi:</strong> ${esc(r.anomali)}<br><span class="small-note">Belum tentu kecurangan — periksa bila berulang.</span></div>` : ''}
         <div id="correct-slot"></div>
         <div class="modal-actions" id="detail-actions">
-          <button class="btn btn-ghost" data-close-detail>Tutup</button>
+          <button class="btn btn-ghost" data-history><i data-lucide="calendar-days"></i> Riwayat &amp; revisi</button>
           <button class="btn btn-primary" data-correct><i data-lucide="pencil"></i> Koreksi</button>
         </div>`;
-      body.querySelector('[data-close-detail]').onclick = close;
+      body.querySelector('[data-history]').onclick = () => { close(); openRevision(r.userId, s.data.tanggal.slice(0, 7)); };
       body.querySelector('[data-correct]').onclick = () => {
         body.querySelector('#detail-actions').remove();
-        renderCorrectionForm(body.querySelector('#correct-slot'), r, close);
+        renderCorrectionForm(body.querySelector('#correct-slot'),
+          { userId: r.userId, nama: r.nama, dates: [s.data.tanggal], current: r }, close, loadDashboard);
       };
     });
   }
 
-  function renderCorrectionForm(slot, r, close) {
+  /**
+   * Formulir revisi bersama (Dashboard & halaman Revisi). `target`:
+   * { userId, nama, dates: ['yyyy-MM-dd', ...], current?: { status, jamMasuk, jamPulang } }.
+   * Pilihan "Hapus catatan" mengosongkan hari tersebut.
+   */
+  function renderCorrectionForm(slot, target, close, onDone) {
     const present = ['Hadir', 'Terlambat'];
-    const initial = r.status === 'Belum absen' ? 'Hadir' : r.status;
+    const cur = target.current || {};
+    const known = SERIES.some(se => se.key === cur.status);
+    const initial = known ? cur.status : 'Hadir';
+    const multi = target.dates.length > 1;
     slot.innerHTML = `
       <form class="form" id="correct-form" novalidate>
+        ${multi ? `<p class="confirm-text">Revisi <b>${target.dates.length} hari</b> untuk <b>${esc(target.nama)}</b>.</p>` : ''}
         <label>Status
-          <select name="status">${SERIES.map(se => `<option value="${se.key}" ${se.key === initial ? 'selected' : ''}>${se.label}</option>`).join('')}</select>
+          <select name="status">
+            ${SERIES.map(se => `<option value="${se.key}" ${se.key === initial ? 'selected' : ''}>${se.label}</option>`).join('')}
+            <option value="HAPUS">Hapus catatan (kosongkan)</option>
+          </select>
         </label>
         <div class="form-row" id="cf-times">
-          <label>Jam masuk<input type="time" name="jamMasuk" value="${esc(String(r.jamMasuk || '').slice(0, 5))}"></label>
-          <label>Jam pulang<input type="time" name="jamPulang" value="${esc(String(r.jamPulang || '').slice(0, 5))}"></label>
+          <label>Jam masuk<input type="time" name="jamMasuk" value="${esc(String(cur.jamMasuk || '').slice(0, 5))}"></label>
+          <label>Jam pulang<input type="time" name="jamPulang" value="${esc(String(cur.jamPulang || '').slice(0, 5))}"></label>
         </div>
-        <label>Alasan koreksi
+        <p class="muted small-note" id="cf-hapus-note" hidden>Catatan hari tersebut dihapus, misalnya karena hari libur yang terlanjur ditandai. Riwayatnya tetap tercatat di log.</p>
+        <label>Alasan revisi
           <textarea name="alasan" rows="2" maxlength="300" placeholder="Contoh: HP guru rusak, hadir sesuai daftar piket"></textarea>
-          <small>Wajib diisi. Tercatat di log aktivitas beserta data sebelum koreksi.</small>
+          <small>Wajib diisi. Tercatat di log aktivitas beserta data sebelum revisi.</small>
         </label>
         <div class="alert alert-error" id="cf-error" hidden></div>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" data-cancel>Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan Koreksi</button>
+          <button type="submit" class="btn btn-primary">Simpan Revisi</button>
         </div>
       </form>`;
     const form = slot.querySelector('form');
-    const syncTimes = () => { slot.querySelector('#cf-times').hidden = !present.includes(form.status.value); };
-    form.status.onchange = syncTimes;
-    syncTimes();
+    const sync = () => {
+      slot.querySelector('#cf-times').hidden = !present.includes(form.status.value);
+      slot.querySelector('#cf-hapus-note').hidden = form.status.value !== 'HAPUS';
+    };
+    form.status.onchange = sync;
+    sync();
     slot.querySelector('[data-cancel]').onclick = close;
     form.onsubmit = async e => {
       e.preventDefault();
       const err = slot.querySelector('#cf-error');
       err.hidden = true;
       const alasan = form.alasan.value.trim();
-      if (alasan.length < 5) { err.textContent = 'Alasan koreksi minimal 5 karakter.'; err.hidden = false; return; }
+      if (alasan.length < 5) { err.textContent = 'Alasan revisi minimal 5 karakter.'; err.hidden = false; return; }
+      if (present.includes(form.status.value) && !form.jamMasuk.value) { err.textContent = 'Isi jam masuk untuk status ' + form.status.value + '.'; err.hidden = false; return; }
       await withLoading(form.querySelector('[type=submit]'), async () => {
         try {
-          await Api.call('adminCorrectAttendance', {
-            userId: r.userId, tanggal: s.data.tanggal, status: form.status.value,
+          const res = await Api.call('adminBulkCorrect', {
+            userId: target.userId, tanggal: target.dates, status: form.status.value,
             jamMasuk: form.jamMasuk.value, jamPulang: form.jamPulang.value, alasan,
           });
           close();
-          toast('Absensi ' + r.nama + ' dikoreksi.', 'success');
-          loadDashboard();
+          toast(form.status.value === 'HAPUS' ? `${res.dihapus} catatan dihapus.` : `${res.diubah} hari direvisi untuk ${target.nama}.`, 'success');
+          onDone();
         } catch (ex) {
           err.textContent = ex.message;
           err.hidden = false;
@@ -382,6 +400,159 @@ const Admin = (() => {
       });
     };
     icons();
+  }
+
+  /* ======================= REVISI PER GURU ======================= */
+
+  const rv = { userId: null, bulan: null, data: null, selected: [] };
+
+  /** Membuka halaman revisi untuk satu guru (dari menu Guru, Dashboard, atau Laporan). */
+  function openRevision(userId, bulan) {
+    rv.userId = userId;
+    rv.bulan = bulan || todayWib().slice(0, 7);
+    rv.selected = [];
+    App.go('revisi', true);
+  }
+
+  function monthLabel(bulan) {
+    return new Date(bulan + '-15T12:00:00+07:00').toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', month: 'long', year: 'numeric' });
+  }
+
+  function shiftMonth(bulan, delta) {
+    const [y, m] = bulan.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + delta, 15));
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+  }
+
+  async function revision(view) {
+    if (!rv.userId) {
+      view.innerHTML = `<div class="card empty">${Brand.emptyCalendar()}Pilih guru dari menu <b>Guru</b>, lalu ketuk <b>Riwayat &amp; Revisi</b>.
+        <p><button class="btn btn-primary btn-sm" id="rv-go-guru">Buka menu Guru</button></p></div>`;
+      document.getElementById('rv-go-guru').onclick = () => App.go('guru');
+      return;
+    }
+    if (!s.users.length) {
+      try { s.users = await Api.call('adminListUsers'); } catch (e) { /* daftar pilihan guru opsional */ }
+    }
+    const current = todayWib().slice(0, 7);
+    const options = s.users.filter(u => u.role === 'guru' || u.userId === rv.userId);
+    view.innerHTML = `
+      <div class="page-head">
+        <div><h1>Revisi Absensi</h1><p>Ketuk tanggal untuk merevisi, atau centang beberapa tanggal sekaligus.</p></div>
+      </div>
+      <section class="card">
+        <div class="form">
+          <label>Guru<select id="rv-user">
+            ${options.map(u => `<option value="${esc(u.userId)}" ${u.userId === rv.userId ? 'selected' : ''}>${esc(u.nama)}${u.jenjang ? ' · ' + esc(u.jenjang) : ''}</option>`).join('')}
+          </select></label>
+        </div>
+        <div class="month-switch" style="margin-top:10px">
+          <button class="icon-btn" id="rv-prev" aria-label="Bulan sebelumnya"><i data-lucide="chevron-left"></i></button>
+          <strong>${esc(monthLabel(rv.bulan))}</strong>
+          <button class="icon-btn" id="rv-next" aria-label="Bulan berikutnya" ${rv.bulan >= current ? 'disabled' : ''}><i data-lucide="chevron-right"></i></button>
+        </div>
+      </section>
+      <div class="mini-stats" id="rv-stats"></div>
+      <div class="chips" id="rv-quick"></div>
+      <section class="card"><div id="rv-list" class="hist-list"><div class="empty"><span class="spinner spinner-dark"></span></div></div></section>
+      <div class="bulk-bar" id="rv-bulk" hidden>
+        <span id="rv-bulk-n"></span>
+        <div><button class="btn btn-ghost btn-sm" id="rv-clear">Batal</button>
+          <button class="btn btn-primary btn-sm" id="rv-apply"><i data-lucide="pencil"></i> Revisi</button></div>
+      </div>`;
+    icons();
+    document.getElementById('rv-user').onchange = e => { rv.userId = e.target.value; rv.selected = []; revision(view); };
+    document.getElementById('rv-prev').onclick = () => { rv.bulan = shiftMonth(rv.bulan, -1); rv.selected = []; revision(view); };
+    document.getElementById('rv-next').onclick = () => { if (rv.bulan < current) { rv.bulan = shiftMonth(rv.bulan, 1); rv.selected = []; revision(view); } };
+    document.getElementById('rv-clear').onclick = () => { rv.selected = []; renderRevisionList(); };
+    document.getElementById('rv-apply').onclick = openBulkRevision;
+
+    const want = rv.userId + '|' + rv.bulan;
+    try {
+      const data = await Api.call('adminGuruMonth', { userId: rv.userId, bulan: rv.bulan });
+      if (!document.getElementById('rv-list') || want !== rv.userId + '|' + rv.bulan) return;
+      rv.data = data;
+      renderRevisionList();
+    } catch (err) {
+      const box = document.getElementById('rv-list');
+      if (box) box.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
+    }
+  }
+
+  const NEEDS_REVIEW = ['Tanpa Keterangan', 'Tanpa data'];
+
+  function renderRevisionList() {
+    const box = document.getElementById('rv-list');
+    if (!box || !rv.data) return;
+    const d = rv.data;
+    const r = d.ringkasan;
+    const stat = (label, v, color) => `<div class="mini-stat"><strong>${v}</strong><span><i class="dot" style="background:${color}"></i>${label}</span></div>`;
+    document.getElementById('rv-stats').innerHTML =
+      stat('Hadir', r['Hadir'], SERIES[0].color) + stat('Terlambat', r['Terlambat'], SERIES[1].color) +
+      stat('Izin/Sakit', r['Izin'] + r['Sakit'], SERIES[2].color) + stat('Alpa', r['Tanpa Keterangan'], SERIES[4].color);
+
+    const review = d.days.filter(x => NEEDS_REVIEW.includes(x.status) && x.tanggal < d.hariIni);
+    const quick = document.getElementById('rv-quick');
+    quick.innerHTML = review.length
+      ? `<button class="chip" id="rv-pick-review">Pilih semua Alpa / Tanpa data (${review.length})</button>`
+      : '';
+    const pick = document.getElementById('rv-pick-review');
+    if (pick) pick.onclick = () => { rv.selected = review.map(x => x.tanggal); renderRevisionList(); };
+
+    const t = v => (v ? String(v).slice(0, 5) : '—');
+    box.innerHTML = d.days.map(x => {
+      const dt = new Date(x.tanggal + 'T12:00:00+07:00');
+      const day = dt.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'short' });
+      const label = dt.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'long', day: 'numeric', month: 'long' });
+      const info = x.jamMasuk
+        ? `Masuk ${t(x.jamMasuk)} · Pulang ${t(x.jamPulang)}`
+        : esc(String(x.keterangan || '').replace(/\s*\(SUB-[A-Z0-9]+\)$/, '') ||
+          (x.status === 'Libur' ? 'Bukan hari kerja' : x.status === 'Libur sif' ? 'Bukan giliran sif' : 'Belum ada catatan'));
+      const checked = rv.selected.includes(x.tanggal);
+      return `
+        <div class="hist-item rv-item ${x.hariKerja ? '' : 'rv-off'} ${checked ? 'rv-checked' : ''}">
+          <label class="rv-check"><input type="checkbox" data-pick="${x.tanggal}" ${checked ? 'checked' : ''} aria-label="Pilih ${esc(label)}"></label>
+          <button class="rv-main" data-day="${x.tanggal}">
+            <span class="hist-date"><strong>${dt.getDate()}</strong><span>${esc(day)}</span></span>
+            <span class="hist-main"><strong>${esc(label)}${x.anomali ? ' <span class="anomaly-ic" title="Ada catatan anomali lokasi"><i data-lucide="triangle-alert"></i></span>' : ''}</strong>
+              <span class="rv-meta">${Guru.statusPill(x.status)}<span>${info}</span></span></span>
+          </button>
+        </div>`;
+    }).join('');
+
+    box.querySelectorAll('[data-pick]').forEach(cb => {
+      cb.onchange = () => {
+        const tg = cb.dataset.pick;
+        rv.selected = cb.checked ? rv.selected.concat(tg) : rv.selected.filter(x => x !== tg);
+        renderRevisionList();
+      };
+    });
+    box.querySelectorAll('[data-day]').forEach(b => {
+      b.onclick = () => {
+        const x = d.days.find(y => y.tanggal === b.dataset.day);
+        openModal(d.guru.nama + ' — ' + fmtShort(x.tanggal), (body, close) => {
+          renderCorrectionForm(body, { userId: rv.userId, nama: d.guru.nama, dates: [x.tanggal], current: x }, close, revisionReload);
+        });
+      };
+    });
+
+    const bar = document.getElementById('rv-bulk');
+    bar.hidden = !rv.selected.length;
+    document.getElementById('rv-bulk-n').textContent = rv.selected.length + ' tanggal dipilih';
+    icons();
+  }
+
+  function revisionReload() {
+    rv.selected = [];
+    const view = document.getElementById('view');
+    if (view && App.state.tab === 'revisi') revision(view);
+  }
+
+  function openBulkRevision() {
+    if (!rv.selected.length || !rv.data) return;
+    openModal('Revisi ' + rv.selected.length + ' tanggal', (body, close) => {
+      renderCorrectionForm(body, { userId: rv.userId, nama: rv.data.guru.nama, dates: rv.selected.slice() }, close, revisionReload);
+    });
   }
 
   /* ======================= LAPORAN ======================= */
@@ -495,13 +666,13 @@ const Admin = (() => {
           ${tile('Tanpa Keterangan', t.alpa, SERIES[4].color)}${tile('Guru', t.guru, null)}
         </div>
         <section class="card">
-          <div class="card-head"><div><h2>Rekap per guru</h2><p>Kehadiran = (hadir + terlambat) ÷ hari kerja.</p></div></div>
+          <div class="card-head"><div><h2>Rekap per guru</h2><p>Kehadiran = (hadir + terlambat) ÷ hari kerja. Ketuk nama untuk merevisi.</p></div></div>
           ${d.perGuru.length ? `
           <div class="table-scroll">
             <table class="report-table">
               <thead><tr><th>Nama guru</th><th class="n">Kehadiran</th><th class="n">Hadir</th><th class="n">Terlambat</th><th class="n">Izin</th><th class="n">Sakit</th><th class="n">Alpa</th><th class="n">Hari kerja</th><th>Jenjang</th></tr></thead>
               <tbody>${d.perGuru.map(g => `
-                <tr><td class="name">${esc(g.nama)}</td>
+                <tr data-rev="${esc(g.userId)}"><td class="name">${esc(g.nama)}</td>
                   <td class="n"><span class="status-pill ${pctClass(g.persenHadir)}">${String(g.persenHadir).replace('.', ',')}%</span></td>
                   <td class="n">${g.hadir}</td><td class="n">${g.terlambat}</td><td class="n">${g.izin}</td><td class="n">${g.sakit}</td>
                   <td class="n">${g.alpa}${g.tanpaData ? `<span class="muted" title="Hari kerja tanpa catatan"> +${g.tanpaData}?</span>` : ''}</td>
@@ -515,6 +686,7 @@ const Admin = (() => {
         <p class="muted small-note">Detail harian (jam masuk, jam pulang, jarak, keterangan) tersedia di berkas Excel/CSV.</p>
       </div>`;
     icons();
+    out.querySelectorAll('[data-rev]').forEach(tr => { tr.onclick = () => openRevision(tr.dataset.rev, d.mulai.slice(0, 7)); });
     document.getElementById('exp-xlsx').onclick = e => exportXlsx(e.currentTarget);
     document.getElementById('exp-csv').onclick = exportCsv;
   }
@@ -670,6 +842,7 @@ const Admin = (() => {
     openModal(isEdit ? 'Ubah Data Guru' : 'Tambah Guru', (body, close) => {
       body.innerHTML = `
         <form id="user-form" class="form" novalidate>
+          ${isEdit && u.role === 'guru' ? '<button type="button" class="btn btn-primary btn-sm btn-block" data-history><i data-lucide="calendar-days"></i> Riwayat &amp; Revisi Absensi</button>' : ''}
           ${isEdit && !self ? `
           <div class="quick-actions">
             <button type="button" class="btn btn-ghost btn-sm" data-toggle-user><i data-lucide="${u.statusAkun === 'aktif' ? 'user-x' : 'user-check'}"></i> ${u.statusAkun === 'aktif' ? 'Nonaktifkan' : 'Aktifkan'}</button>
@@ -705,6 +878,8 @@ const Admin = (() => {
         </form>`;
       const form = body.querySelector('#user-form');
       body.querySelector('[data-cancel]').onclick = close;
+      const hist = body.querySelector('[data-history]');
+      if (hist) hist.onclick = () => { close(); openRevision(u.userId); };
       const tg = body.querySelector('[data-toggle-user]');
       if (tg) tg.onclick = () => { close(); toggleUser(null, u); };
       const del = body.querySelector('[data-delete-user]');
@@ -1075,5 +1250,5 @@ const Admin = (() => {
     };
   }
 
-  return { dashboard, reports, users, audit, settings };
+  return { dashboard, reports, revision, openRevision, users, audit, settings };
 })();

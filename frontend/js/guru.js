@@ -7,7 +7,7 @@ const Guru = (() => {
 
   const STATUS_CLASS = {
     'Hadir': 'st-hadir', 'Terlambat': 'st-terlambat', 'Izin': 'st-izin',
-    'Sakit': 'st-sakit', 'Tanpa Keterangan': 'st-alpa', 'Belum absen': 'st-belum', 'Libur sif': 'st-libur',
+    'Sakit': 'st-sakit', 'Tanpa Keterangan': 'st-alpa', 'Belum absen': 'st-belum', 'Libur sif': 'st-libur', 'Libur': 'st-libur', 'Tanpa data': 'st-belum',
   };
   const DOT = { 'Hadir': '#166534', 'Terlambat': '#e8a317', 'Izin': '#2563eb', 'Sakit': '#a21caf', 'Tanpa Keterangan': '#dc2626' };
 

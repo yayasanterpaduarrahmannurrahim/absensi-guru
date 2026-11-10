@@ -461,6 +461,29 @@ h1, h2, h3 { letter-spacing: -.01em; }
 .card-danger { border-color: #f7cdcd; }
 .card-danger h2 { color: #8c1d1d; }
 .st-libur { background: #e0f2fe; color: #075985; }
+
+/* Revisi absensi per guru */
+.rv-item { gap: 6px; padding: 6px 0; }
+.rv-item.rv-checked { background: var(--g-50); border-radius: var(--r-sm); }
+.rv-item.rv-off .hist-date { opacity: .6; }
+.rv-check { display: grid; place-items: center; width: 40px; height: 44px; flex-shrink: 0; cursor: pointer; }
+.rv-check input { width: 20px; height: 20px; accent-color: var(--g-700); cursor: pointer; }
+.rv-main {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 6px 4px 6px 0;
+  border: 0; background: none; text-align: left; cursor: pointer; font: inherit; color: inherit;
+}
+.rv-main .hist-main strong { display: flex; align-items: center; gap: 4px; }
+.bulk-bar {
+  position: fixed; left: 12px; right: 12px; bottom: calc(var(--nav-h) + 12px + var(--safe-b)); z-index: 40;
+  max-width: 520px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--ink); color: #fff; padding: 8px 8px 8px 16px; border-radius: 14px; box-shadow: 0 10px 28px rgba(0, 0, 0, .22);
+  font-weight: 600; font-size: .9rem;
+}
+.bulk-bar div { display: flex; gap: 6px; }
+.bulk-bar .btn-ghost { background: transparent; color: #fff; border-color: rgba(255, 255, 255, .3); }
+.report-table tbody tr[data-rev] { cursor: pointer; }
+.report-table tbody tr[data-rev]:hover td { background: var(--g-50); }
+@media (min-width: 960px) { .bulk-bar { bottom: 24px; } }
 .user-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .user-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-email { font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
@@ -633,3 +656,8 @@ h1, h2, h3 { letter-spacing: -.01em; }
   .auth-card { padding: 30px 28px; }
   .auth-scene { display: none; }
 }
+.rv-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 3px; }
+.rv-meta .status-pill { font-size: .72rem; padding: 2px 8px; }
+.rv-check { width: 34px; }
+/* Beri ruang agar tanggal terakhir tidak tertutup bilah "n tanggal dipilih". */
+body:has(.bulk-bar:not([hidden])) .content { padding-bottom: calc(var(--nav-h) + 96px + var(--safe-b)); }

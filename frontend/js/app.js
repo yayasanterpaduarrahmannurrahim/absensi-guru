@@ -28,6 +28,8 @@ const App = (() => {
       { id: 'guru', icon: 'users', label: 'Guru', title: 'Data Guru', render: v => Admin.users(v) },
       // Log tidak muncul di menu bawah HP (maks. 5 menu); dibuka dari Pengaturan.
       { id: 'log', icon: 'scroll-text', label: 'Log', title: 'Log Aktivitas', render: v => Admin.audit(v), mobile: false },
+      // Dibuka dari Guru / Dashboard / Laporan; tidak tampil di menu.
+      { id: 'revisi', icon: 'calendar-days', label: 'Revisi', title: 'Revisi Absensi', render: v => Admin.revision(v), mobile: false, hidden: true },
       { id: 'pengaturan', icon: 'settings', label: 'Pengaturan', title: 'Pengaturan', render: v => Admin.settings(v) },
     ],
   };
@@ -305,7 +307,7 @@ const App = (() => {
         <aside class="sidebar">
           <div class="side-brand">${Brand.logo(38)}<div><strong>Absensi Guru</strong><span data-school-name>${esc(state.school.schoolName)}</span></div></div>
           <nav class="side-nav" aria-label="Menu utama">
-            ${nav.map(n => `<button class="side-item" data-nav="${n.id}"><i data-lucide="${n.icon}"></i>${n.label}<span class="nav-badge" data-badge="${n.id}" hidden></span></button>`).join('')}
+            ${nav.filter(n => !n.hidden).map(n => `<button class="side-item" data-nav="${n.id}"><i data-lucide="${n.icon}"></i>${n.label}<span class="nav-badge" data-badge="${n.id}" hidden></span></button>`).join('')}
           </nav>
           <div class="side-user">
             <div class="avatar avatar-sm" data-user-initials>${esc(initials(u.nama))}</div>

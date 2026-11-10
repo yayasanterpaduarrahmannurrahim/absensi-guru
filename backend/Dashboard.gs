@@ -209,6 +209,117 @@ function apiAdminCorrectAttendance_(payload, ctx) {
   return correctAttendance_(ctx.session.user, validateCorrection_(payload, now.tanggal), now);
 }
 
+/* ---------- Admin: revisi absensi per guru (tanggal yang sudah lewat) ---------- */
+
+const HAPUS_CATATAN = 'HAPUS';
+const TANPA_DATA = 'Tanpa data';
+const LIBUR = 'Libur';
+
+/** Tanggal terakhir pada bulan 'yyyy-MM'. */
+function lastDayOfMonth_(bulan) {
+  let t = bulan + '-28';
+  while (addDays_(t, 1).slice(0, 7) === bulan) t = addDays_(t, 1);
+  return t;
+}
+
+/**
+ * Semua tanggal dalam satu bulan (sampai hari ini) untuk satu guru, termasuk hari tanpa catatan,
+ * hari libur, dan libur sif — agar admin dapat merevisi tanggal mana pun yang sudah lewat.
+ */
+function buildGuruMonth_(user, records, bulan, schedule, today) {
+  const byDate = {};
+  records.forEach(r => { byDate[r.tanggal] = r; });
+  const first = bulan + '-01';
+  const last = lastDayOfMonth_(bulan) < today ? lastDayOfMonth_(bulan) : today;
+  const days = [];
+  for (let t = first; t <= last; t = addDays_(t, 1)) {
+    const r = byDate[t];
+    const hariKerja = schedule.hariKerja.indexOf(dayOfWeek_(t)) >= 0;
+    const terjadwal = isScheduledFor_(user, t, schedule);
+    let status = r ? r.status : (!hariKerja ? LIBUR : !terjadwal ? LIBUR_SIF : t === today ? BELUM_ABSEN : TANPA_DATA);
+    days.push({
+      tanggal: t, hariKerja: hariKerja, terjadwal: terjadwal, adaCatatan: !!r, status: status,
+      jamMasuk: r ? r.jam_masuk : '', jamPulang: r ? r.jam_pulang : '',
+      jarakMasuk: r ? r.jarak_masuk : '', jarakPulang: r ? r.jarak_pulang : '',
+      keterangan: r ? r.keterangan : '', anomali: r ? r.anomali : '',
+    });
+  }
+  return days.reverse(); // terbaru di atas
+}
+
+function apiAdminGuruMonth_(payload) {
+  const now = nowWib_();
+  const userId = vString_(payload.userId, 'Guru', { required: true, max: 40 });
+  const bulan = payload.bulan
+    ? vString_(payload.bulan, 'Bulan', { pattern: /^\d{4}-(0[1-9]|1[0-2])$/ })
+    : now.tanggal.slice(0, 7);
+  if (bulan > now.tanggal.slice(0, 7)) throw new AppError('VALIDATION', 'Bulan yang akan datang belum dapat direvisi.');
+  const records = findRowsBy_(SHEETS.ABSENSI, 'user_id', userId).filter(r => String(r.tanggal).slice(0, 7) === bulan);
+  const user = findByKey_(SHEETS.USERS, userId);
+  if (!user && !records.length) throw new AppError('NOT_FOUND', 'Guru tidak ditemukan.');
+  const u = user || { user_id: userId, nama_guru: records[0].nama_guru, jenjang: '', status_akun: 'dihapus' };
+  return {
+    guru: publicUser_(u),
+    bulan: bulan,
+    hariIni: now.tanggal,
+    ringkasan: countStatuses_(records),
+    days: buildGuruMonth_(u, records, bulan, getSchedule_(), now.tanggal),
+  };
+}
+
+/** Validasi revisi untuk satu atau beberapa tanggal milik satu guru. */
+function validateBulkCorrection_(p, today) {
+  if (!Array.isArray(p.tanggal) || !p.tanggal.length) throw new AppError('VALIDATION', 'Pilih minimal satu tanggal.');
+  if (p.tanggal.length > 62) throw new AppError('VALIDATION', 'Maksimal 62 tanggal sekali revisi.');
+  const dates = p.tanggal.map(t => parseIsoDate_(t, 'Tanggal')).filter((t, i, a) => a.indexOf(t) === i).sort();
+  if (dates[dates.length - 1] > today) throw new AppError('VALIDATION', 'Tanggal yang akan datang tidak dapat direvisi.');
+  if (p.status === HAPUS_CATATAN) {
+    return {
+      userId: vString_(p.userId, 'ID guru', { required: true, max: 40 }),
+      dates: dates,
+      hapus: true,
+      alasan: vString_(p.alasan, 'Alasan revisi', { required: true, min: 5, max: 300 }),
+    };
+  }
+  // Status/jam/alasan divalidasi dengan aturan koreksi biasa (memakai tanggal pertama).
+  const base = validateCorrection_(Object.assign({}, p, { tanggal: dates[0] }), today);
+  return Object.assign(base, { dates: dates, hapus: false });
+}
+
+/**
+ * Menerapkan revisi ke setiap tanggal. Setiap tanggal tercatat sendiri di AUDIT_LOG
+ * (nilai sebelum & sesudah). "Hapus catatan" mengosongkan hari tersebut.
+ */
+function bulkCorrect_(adminUser, input, now) {
+  return withLock_(() => {
+    let diubah = 0;
+    let dihapus = 0;
+    input.dates.forEach(t => {
+      if (input.hapus) {
+        const id = attendanceId_(t, input.userId);
+        const existing = findByKey_(SHEETS.ABSENSI, id);
+        if (!existing) return;
+        deleteByKey_(SHEETS.ABSENSI, id);
+        clearAttendanceMarkers_(id);
+        logAudit_(adminUser.user_id, 'HAPUS_CATATAN_ABSENSI', {
+          attendance_id: id, guru: existing.nama_guru, tanggal: t, alasan: input.alasan,
+          sebelum: { status: existing.status, jam_masuk: existing.jam_masuk, jam_pulang: existing.jam_pulang, keterangan: existing.keterangan },
+        });
+        dihapus++;
+      } else {
+        correctAttendance_(adminUser, Object.assign({}, input, { tanggal: t }), now);
+        diubah++;
+      }
+    });
+    return { diubah: diubah, dihapus: dihapus };
+  });
+}
+
+function apiAdminBulkCorrect_(payload, ctx) {
+  const now = nowWib_();
+  return bulkCorrect_(ctx.session.user, validateBulkCorrection_(payload, now.tanggal), now);
+}
+
 /* ---------- Admin: hapus data (mis. data uji coba) ---------- */
 
 function validateDeleteData_(p) {

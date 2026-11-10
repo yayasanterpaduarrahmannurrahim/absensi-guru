@@ -48,7 +48,7 @@ function createTestRunner_() {
  */
 function runSemuaTes() {
   const suites = ['runTahap1Tests', 'runTahap2Tests', 'runTahap3Tests', 'runTahap4Tests',
-    'runTahap5Tests', 'runTahap6Tests', 'runTahap7Tests', 'runLoginKodeTests', 'runSifHapusTests'];
+    'runTahap5Tests', 'runTahap6Tests', 'runTahap7Tests', 'runLoginKodeTests', 'runSifHapusTests', 'runRevisiTests'];
   const summary = suites.map(name => {
     console.log('===== ' + name + ' =====');
     try {
@@ -990,6 +990,83 @@ function runSifHapusTests() {
     const prefix = 'TEST-SIF-' + tag;
     deleteRowsWhere_(SHEETS.ABSENSI, r => String(r.user_id).indexOf(prefix) === 0);
     deleteRowsWhere_(SHEETS.PENGAJUAN, r => String(r.user_id).indexOf(prefix) === 0);
+  }
+  finish();
+}
+
+/** Revisi absensi per guru untuk tanggal yang sudah lewat (satu/banyak hari, hapus catatan). */
+function runRevisiTests() {
+  const { test, assert, assertEq, expectError, finish } = createTestRunner_();
+  resetDbCache_();
+  const tag = Utilities.getUuid().slice(0, 6).toUpperCase();
+  const now = nowWib_();
+  const admin = { user_id: 'TEST-ADM-REV' };
+  const g = { user_id: 'TEST-REV-' + tag, nama_guru: 'Guru Revisi', email: 'uji.rev.' + tag.toLowerCase() + '@example.invalid', jenjang: 'SD',
+    role: ROLES.GURU, status_akun: STATUS_AKUN.AKTIF, created_at: '1999-12-01 07:00:00', updated_at: now.waktu, sif_sabtu: 'A' };
+  const sch = { jamMasuk: '07:00', batasTerlambat: '07:15', batasAbsenMasuk: '12:00', jamPulang: '14:00', hariKerja: [1, 2, 3, 4, 5, 6], sifAcuan: '2000-01-08' };
+  const rec = (t, st) => insertRow_(SHEETS.ABSENSI, { attendance_id: attendanceId_(t, g.user_id), user_id: g.user_id, nama_guru: g.nama_guru, tanggal: t, status: st });
+
+  insertRow_(SHEETS.USERS, g);
+  try {
+    test('Tampilan bulan: semua tanggal, tanpa data, libur, libur sif, terbaru di atas', () => {
+      const days = buildGuruMonth_(g, [{ tanggal: '2000-01-03', status: 'Hadir', jam_masuk: '07:00:00' }], '2000-01', sch, '2000-02-15');
+      assertEq(days.length, 31, '31 hari Januari');
+      assertEq(days[0].tanggal, '2000-01-31', 'terbaru di atas');
+      const by = {};
+      days.forEach(d => { by[d.tanggal] = d.status; });
+      assertEq(by['2000-01-03'], 'Hadir', 'ada catatan');
+      assertEq(by['2000-01-04'], TANPA_DATA, 'hari kerja tanpa catatan');
+      assertEq(by['2000-01-09'], LIBUR, 'Minggu');
+      assertEq(by['2000-01-15'], LIBUR_SIF, 'Sabtu Sif B untuk guru Sif A');
+      assertEq(by['2000-01-08'], TANPA_DATA, 'Sabtu Sif A terjadwal');
+      assertEq(buildGuruMonth_(g, [], '2000-02', sch, '2000-02-10').length, 10, 'bulan berjalan hanya sampai hari ini');
+    });
+
+    test('Validasi revisi', () => {
+      const ok = { userId: g.user_id, tanggal: ['2000-01-05', '2000-01-04', '2000-01-04'], status: 'Hadir', jamMasuk: '07:10', alasan: 'HP rusak, hadir sesuai daftar piket' };
+      const v = validateBulkCorrection_(ok, now.tanggal);
+      assertEq(v.dates.join(','), '2000-01-04,2000-01-05', 'urut & tanpa duplikat');
+      assertEq(v.jamMasuk, '07:10:00', 'jam dinormalkan');
+      expectError('VALIDATION', () => validateBulkCorrection_(Object.assign({}, ok, { tanggal: [] }), now.tanggal), 'tanpa tanggal');
+      expectError('VALIDATION', () => validateBulkCorrection_(Object.assign({}, ok, { tanggal: [addDays_(now.tanggal, 1)] }), now.tanggal), 'tanggal depan');
+      expectError('VALIDATION', () => validateBulkCorrection_(Object.assign({}, ok, { alasan: 'x' }), now.tanggal), 'alasan pendek');
+      expectError('VALIDATION', () => validateBulkCorrection_(Object.assign({}, ok, { status: 'HAPUS', alasan: '' }), now.tanggal), 'hapus tanpa alasan');
+      assert(validateBulkCorrection_(Object.assign({}, ok, { status: 'HAPUS' }), now.tanggal).hapus, 'hapus catatan');
+    });
+
+    test('Revisi banyak hari sekaligus: membuat & mengubah, satu baris per hari', () => {
+      rec('2000-01-04', 'Tanpa Keterangan');
+      const res = bulkCorrect_(admin, validateBulkCorrection_({ userId: g.user_id, tanggal: ['2000-01-04', '2000-01-05', '2000-01-06'], status: 'Hadir', jamMasuk: '07:05', jamPulang: '14:00', alasan: 'Hadir, HP rusak' }, now.tanggal), now);
+      assertEq(res.diubah, 3, 'tiga hari direvisi');
+      ['2000-01-04', '2000-01-05', '2000-01-06'].forEach(t => {
+        const rows = findRowsBy_(SHEETS.ABSENSI, 'attendance_id', attendanceId_(t, g.user_id));
+        assertEq(rows.length, 1, 'satu baris ' + t);
+      });
+      const month = apiAdminGuruMonth_({ userId: g.user_id, bulan: '2000-01' });
+      const d4 = month.days.find(d => d.tanggal === '2000-01-04');
+      assertEq(d4.status, 'Hadir', 'TK → Hadir');
+      assertEq(d4.jamMasuk, '07:05:00', 'jam masuk');
+      assert(d4.keterangan.indexOf('Koreksi admin') === 0, 'ditandai koreksi');
+    });
+
+    test('Hapus catatan mengosongkan hari & tercatat di log', () => {
+      const res = bulkCorrect_(admin, validateBulkCorrection_({ userId: g.user_id, tanggal: ['2000-01-05', '2000-01-20'], status: 'HAPUS', alasan: 'Libur nasional' }, now.tanggal), now);
+      assertEq(res.dihapus, 1, 'hanya yang ada catatannya');
+      assertEq(findByKey_(SHEETS.ABSENSI, attendanceId_('2000-01-05', g.user_id)), null, 'terhapus');
+      const log = readTail_(SHEETS.AUDIT_LOG, 5).filter(l => l.aktivitas === 'HAPUS_CATATAN_ABSENSI' && l.user_id === admin.user_id);
+      assert(log.length >= 1 && JSON.parse(log[log.length - 1].detail).sebelum.status === 'Hadir', 'log menyimpan nilai sebelum');
+    });
+
+    test('API revisi wajib admin; bulan depan & guru tidak dikenal ditolak', () => {
+      assertEq(dispatch_({ action: 'adminGuruMonth', payload: { userId: g.user_id } }, 'POST').error.code, 'SESSION_INVALID', 'tanpa sesi');
+      assertEq(dispatch_({ action: 'adminBulkCorrect', payload: {} }, 'POST').error.code, 'SESSION_INVALID', 'tanpa sesi');
+      const nextMonth = addDays_(lastDayOfMonth_(now.tanggal.slice(0, 7)), 1).slice(0, 7);
+      expectError('VALIDATION', () => apiAdminGuruMonth_({ userId: g.user_id, bulan: nextMonth }), 'bulan depan');
+      expectError('NOT_FOUND', () => apiAdminGuruMonth_({ userId: 'TIDAK-ADA-' + tag, bulan: '2000-01' }), 'guru tidak dikenal');
+    });
+  } finally {
+    deleteRowsWhere_(SHEETS.ABSENSI, r => r.user_id === g.user_id);
+    deleteRowsWhere_(SHEETS.USERS, r => r.user_id === g.user_id);
   }
   finish();
 }
