@@ -165,6 +165,7 @@ function updateByKey_(name, keyValue, patch) {
   return withLock_(() => {
     const current = findByKey_(name, keyValue);
     if (!current) throw new AppError('NOT_FOUND', 'Data tidak ditemukan.');
+    if (name === SHEETS.USERS) invalidateUserCache_(keyValue);
     const sh = getSheet_(name);
     const headers = getHeaders_(name);
     const key = keyColumn_(name);
@@ -174,6 +175,10 @@ function updateByKey_(name, keyValue, patch) {
       const fmt = columnFormat_(name, h);
       sh.getRange(current._row, c + 1).setNumberFormat(fmt).setValue(toCell_(patch[h], fmt !== '@'));
     });
+    if (name === SHEETS.USERS) {
+      SpreadsheetApp.flush();
+      invalidateUserCache_(keyValue); // sekali lagi setelah tertulis, menutup celah balapan
+    }
     return Object.assign({}, current, patch, { [key]: current[key] });
   });
 }
@@ -182,6 +187,7 @@ function updateByKey_(name, keyValue, patch) {
 function deleteRowsWhere_(name, predicate) {
   return withLock_(() => {
     const rows = readAll_(name).filter(predicate);
+    if (name === SHEETS.USERS) rows.forEach(r => invalidateUserCache_(r.user_id));
     const sh = getSheet_(name);
     // Hapus dari bawah agar nomor baris di atasnya tidak bergeser; baris berurutan dihapus sekaligus.
     const nums = rows.map(r => r._row).sort((a, b) => b - a);
@@ -201,6 +207,7 @@ function deleteByKey_(name, keyValue) {
     const current = findByKey_(name, keyValue);
     if (!current) throw new AppError('NOT_FOUND', 'Data tidak ditemukan.');
     getSheet_(name).deleteRow(current._row);
+    if (name === SHEETS.USERS) invalidateUserCache_(keyValue);
     return current;
   });
 }

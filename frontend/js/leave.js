@@ -118,13 +118,14 @@ const Leave = (() => {
   async function loadMine() {
     const box = document.getElementById('my-leaves');
     if (!box) return;
-    let leaves;
     try {
-      leaves = await Api.call('myLeaves');
+      await Api.swr('myLeaves', {}, leaves => renderMineList(box, leaves));
     } catch (err) {
       if (box.isConnected) box.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
-      return;
     }
+  }
+
+  function renderMineList(box, leaves) {
     if (!box.isConnected) return;
     if (!leaves.length) {
       box.innerHTML = '<div class="empty">Belum ada pengajuan.</div>';
@@ -238,13 +239,17 @@ const Leave = (() => {
     });
 
     const box = document.getElementById('admin-leaves');
-    let leaves;
+    const filter = adminFilter;
     try {
-      leaves = await Api.call('adminListLeaves', { status: adminFilter });
+      await Api.swr('adminListLeaves', { status: filter }, leaves => {
+        if (filter === adminFilter) renderAdminList(view, box, leaves);
+      });
     } catch (err) {
       if (box.isConnected) box.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
-      return;
     }
+  }
+
+  function renderAdminList(view, box, leaves) {
     if (!box.isConnected) return;
     if (!leaves.length) {
       box.innerHTML = `<div class="empty">${adminFilter ? 'Tidak ada pengajuan ' + esc(adminFilter.toLowerCase()) + '.' : 'Belum ada pengajuan.'}</div>`;

@@ -48,7 +48,7 @@ function createTestRunner_() {
  */
 function runSemuaTes() {
   const suites = ['runTahap1Tests', 'runTahap2Tests', 'runTahap3Tests', 'runTahap4Tests',
-    'runTahap5Tests', 'runTahap6Tests', 'runTahap7Tests', 'runLoginKodeTests', 'runSifHapusTests', 'runRevisiTests', 'runPeranTests'];
+    'runTahap5Tests', 'runTahap6Tests', 'runTahap7Tests', 'runLoginKodeTests', 'runSifHapusTests', 'runRevisiTests', 'runPeranTests', 'runPerformaTests'];
   const summary = suites.map(name => {
     console.log('===== ' + name + ' =====');
     try {
@@ -1070,6 +1070,56 @@ function runRevisiTests() {
   } finally {
     deleteRowsWhere_(SHEETS.ABSENSI, r => r.user_id === g.user_id);
     deleteRowsWhere_(SHEETS.USERS, r => r.user_id === g.user_id);
+  }
+  finish();
+}
+
+/** Batch (banyak aksi baca dalam satu permintaan) & cache akun pada pemeriksaan sesi. */
+function runPerformaTests() {
+  const { test, assert, assertEq, finish } = createTestRunner_();
+  resetDbCache_();
+  const tag = Utilities.getUuid().slice(0, 6).toLowerCase();
+  const ctx = { session: { user: { user_id: 'TEST' } } };
+  const email = 'uji.performa.' + tag + '@example.invalid';
+  let guru = null;
+  try {
+    guru = apiAdminCreateUser_({ nama: 'Guru Performa', email: email, jenjang: 'SD', roles: ['guru'] }, ctx);
+    const token = createSessionForEmail_(email).token;
+
+    test('Batch: beberapa aksi baca dalam satu permintaan, urutan hasil terjaga', () => {
+      const res = dispatch_({ action: 'batch', token: token, payload: { calls: [
+        { action: 'getLocationConfig' }, { action: 'myHistory' }, { action: 'getToday' },
+      ] } }, 'POST');
+      assert(res.ok, 'batch gagal: ' + JSON.stringify(res.error));
+      assertEq(res.data.length, 3, 'tiga hasil');
+      assert(res.data.every(r => r.ok), 'semua berhasil');
+      assert('radius' in res.data[0].data && 'records' in res.data[1].data && 'serverNow' in res.data[2].data, 'urutan sesuai');
+    });
+
+    test('Batch: hak akses tiap aksi tetap diperiksa & aksi ubah data ditolak', () => {
+      const res = dispatch_({ action: 'batch', token: token, payload: { calls: [
+        { action: 'adminListUsers' }, { action: 'checkIn' }, { action: 'batch' }, { action: 'myLeaves' },
+      ] } }, 'POST').data;
+      assertEq(res[0].error.code, 'FORBIDDEN', 'guru minta data admin');
+      assertEq(res[1].error.code, 'UNKNOWN_ACTION', 'aksi ubah data tidak boleh di-batch');
+      assertEq(res[2].error.code, 'UNKNOWN_ACTION', 'batch bersarang');
+      assert(res[3].ok, 'aksi lain tetap berjalan');
+      assertEq(dispatch_({ action: 'batch', payload: { calls: [{ action: 'me' }] } }, 'POST').error.code, 'SESSION_INVALID', 'tanpa sesi');
+      assertEq(dispatch_({ action: 'batch', token: token, payload: { calls: new Array(11).fill({ action: 'me' }) } }, 'POST').error.code, 'VALIDATION', 'maks 10');
+    });
+
+    test('Cache akun: menonaktifkan / mencabut admin tetap langsung berlaku', () => {
+      assertEq(requireSession_(token, 'user').user.user_id, guru.userId, 'sesi aktif (akun kini tersimpan di cache)');
+      assert(CacheService.getScriptCache().get(USER_CACHE_PREFIX + guru.userId), 'akun tersimpan di cache');
+      apiAdminUpdateUser_({ userId: guru.userId, nama: 'Guru Performa', email: email, jenjang: 'SD', roles: ['guru', 'admin'], statusAkun: 'aktif' }, ctx);
+      assertEq(CacheService.getScriptCache().get(USER_CACHE_PREFIX + guru.userId), null, 'cache dibuang setelah ubah peran');
+      apiAdminUpdateUser_({ userId: guru.userId, nama: 'Guru Performa', email: email, jenjang: 'SD', roles: ['guru'], statusAkun: 'nonaktif' }, ctx);
+      assertEq(CacheService.getScriptCache().get(USER_CACHE_PREFIX + guru.userId), null, 'cache dibuang setelah dinonaktifkan');
+      assertEq(dispatch_({ action: 'me', token: token }, 'POST').error.code, 'SESSION_INVALID', 'akses langsung hilang');
+    });
+  } finally {
+    const left = deleteRowsWhere_(SHEETS.USERS, u => u.email === email);
+    left.forEach(u => deleteSessionsForUser_(u.user_id));
   }
   finish();
 }

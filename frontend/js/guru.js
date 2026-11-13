@@ -36,6 +36,10 @@ const Guru = (() => {
     return date.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   }
 
+  function currentMonth() {
+    return wibParts(new Date()).tanggal.slice(0, 7);
+  }
+
   function greeting(hour) {
     if (hour < 11) return 'Selamat pagi';
     if (hour < 15) return 'Selamat siang';
@@ -131,13 +135,15 @@ const Guru = (() => {
   async function loadRecent() {
     const list = document.getElementById('recent-list');
     try {
-      const res = await Api.call('myHistory');
-      if (!list.isConnected) return;
-      document.getElementById('month-stats').innerHTML = miniStats(res.ringkasan);
-      const recent = res.records.slice(0, 5);
-      list.innerHTML = recent.length
-        ? recent.map(histItem).join('')
-        : `<div class="empty">${Brand.emptyCalendar()}Belum ada absensi bulan ini.</div>`;
+      // Kunci sama dengan halaman Riwayat bulan berjalan, sehingga keduanya berbagi cache.
+      await Api.swr('myHistory', { bulan: currentMonth() }, res => {
+        if (!list.isConnected) return;
+        document.getElementById('month-stats').innerHTML = miniStats(res.ringkasan);
+        const recent = res.records.slice(0, 5);
+        list.innerHTML = recent.length
+          ? recent.map(histItem).join('')
+          : `<div class="empty">${Brand.emptyCalendar()}Belum ada absensi bulan ini.</div>`;
+      });
     } catch (err) {
       if (list.isConnected) list.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
     }
@@ -146,17 +152,23 @@ const Guru = (() => {
   /* ---------- Absensi hari ini ---------- */
 
   async function loadToday() {
-    try {
-      const sentAt = Date.now();
-      const today = await Api.call('getToday');
-      s.clockOffset = today.serverNow - Math.round((sentAt + Date.now()) / 2);
+    const sentAt = Date.now();
+    const apply = (today, stale) => {
+      // Selisih jam hanya dihitung dari data terbaru, bukan data tersimpan.
+      if (!stale) s.clockOffset = today.serverNow - Math.round((sentAt + Date.now()) / 2);
+      if (stale && today.tanggal !== wibParts(new Date()).tanggal) return; // simpanan hari lain: abaikan
       s.today = today;
       s.todayError = '';
+      s.todayKey = '';
+      renderTodayCard();
+    };
+    try {
+      await Api.swr('getToday', {}, apply);
     } catch (err) {
       s.todayError = err.message;
+      s.todayKey = '';
+      renderTodayCard();
     }
-    s.todayKey = '';
-    renderTodayCard();
     startClock();
   }
 
@@ -291,26 +303,35 @@ const Guru = (() => {
     loc.renderKey = '';
     loc.status = 'loading-config';
     renderLocCard();
-    let config;
+    // Titik sekolah jarang berubah: GPS langsung dimulai memakai pengaturan tersimpan,
+    // lalu pengaturan terbaru dari server menggantikannya bila berbeda.
+    const useConfig = config => {
+      if (gen !== loc.gen || !document.getElementById('loc-card') || document.hidden) return;
+      loc.config = config;
+      loc.renderKey = '';
+      if (!config.configured) {
+        if (loc.stop) { loc.stop(); loc.stop = null; }
+        loc.status = 'not-configured';
+        return renderLocCard();
+      }
+      if (!loc.stop) {
+        loc.stop = Geo.watch(update => {
+          loc.status = update.status;
+          if (update.coords) { loc.coords = update.coords; loc.samples = update.samples; }
+          renderLocCard();
+        });
+      } else {
+        renderLocCard();
+      }
+    };
     try {
-      config = await Api.call('getLocationConfig');
+      await Api.swr('getLocationConfig', {}, useConfig);
     } catch (err) {
       if (gen !== loc.gen) return;
       loc.status = 'config-error';
       loc.configError = err.message;
-      return renderLocCard();
-    }
-    if (gen !== loc.gen || !document.getElementById('loc-card') || document.hidden) return;
-    loc.config = config;
-    if (!config.configured) {
-      loc.status = 'not-configured';
-      return renderLocCard();
-    }
-    loc.stop = Geo.watch(update => {
-      loc.status = update.status;
-      if (update.coords) { loc.coords = update.coords; loc.samples = update.samples; }
       renderLocCard();
-    });
+    }
   }
 
   function stopLocation() {
@@ -433,12 +454,13 @@ const Guru = (() => {
   async function loadHistory(bulan) {
     const list = document.getElementById('h-list');
     try {
-      const res = await Api.call('myHistory', { bulan });
-      if (!list.isConnected || bulan !== s.historyMonth) return;
-      document.getElementById('h-stats').innerHTML = miniStats(res.ringkasan);
-      list.innerHTML = res.records.length
-        ? res.records.map(histItem).join('')
-        : `<div class="empty">${Brand.emptyCalendar()}Tidak ada data absensi pada bulan ini.</div>`;
+      await Api.swr('myHistory', { bulan }, res => {
+        if (!list.isConnected || bulan !== s.historyMonth) return;
+        document.getElementById('h-stats').innerHTML = miniStats(res.ringkasan);
+        list.innerHTML = res.records.length
+          ? res.records.map(histItem).join('')
+          : `<div class="empty">${Brand.emptyCalendar()}Tidak ada data absensi pada bulan ini.</div>`;
+      });
     } catch (err) {
       if (list.isConnected) list.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
     }
@@ -477,5 +499,5 @@ const Guru = (() => {
     if (inst) inst.onclick = Pwa.install;
   }
 
-  return { home, history, profile, STATUS_CLASS, statusPill, shortTime };
+  return { home, history, profile, currentMonth, STATUS_CLASS, statusPill, shortTime };
 })();

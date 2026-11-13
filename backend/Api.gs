@@ -17,6 +17,7 @@
 function getRoutes_() {
   return {
     ping: { auth: 'public', get: true, handler: apiPing_ },
+    batch: { auth: 'user', handler: apiBatch_ },
     getPublicConfig: { auth: 'public', get: true, handler: apiGetPublicConfig_ },
 
     loginGoogle: { auth: 'public', handler: apiLoginGoogle_ },
@@ -100,6 +101,37 @@ function dispatch_(request, method) {
   } catch (err) {
     return errorResponse_(err);
   }
+}
+
+/**
+ * Menjalankan beberapa aksi BACA dalam satu permintaan (satu pemeriksaan sesi, satu
+ * bolak-balik jaringan ±2 detik alih-alih beberapa). Hak akses tiap aksi tetap diperiksa.
+ * payload: { calls: [{ action, payload }] } → [{ ok, data } | { ok:false, error }] sesuai urutan.
+ */
+const BATCHABLE_ = ['me', 'getPublicConfig', 'getLocationConfig', 'getToday', 'myHistory', 'myLeaves',
+  'adminDashboard', 'adminListUsers', 'adminGetSchedule', 'adminListLeaves', 'adminAuditLog', 'adminReport', 'adminGuruMonth'];
+
+function apiBatch_(payload, ctx) {
+  const calls = payload.calls;
+  if (!Array.isArray(calls) || !calls.length || calls.length > 10) {
+    throw new AppError('VALIDATION', 'Batch harus berisi 1–10 aksi.');
+  }
+  const routes = getRoutes_();
+  return calls.map(c => {
+    try {
+      const action = c && c.action;
+      if (typeof action !== 'string' || BATCHABLE_.indexOf(action) < 0) {
+        throw new AppError('UNKNOWN_ACTION', 'Aksi tidak dapat digabungkan.');
+      }
+      if (routes[action].auth === 'admin' && !hasRole_(ctx.session.user, ROLES.ADMIN)) {
+        throw new AppError('FORBIDDEN', 'Anda tidak memiliki akses ke fitur ini.');
+      }
+      const p = c.payload && typeof c.payload === 'object' ? c.payload : {};
+      return { ok: true, data: routes[action].handler(p, ctx) };
+    } catch (err) {
+      return errorResponse_(err);
+    }
+  });
 }
 
 function errorResponse_(err) {

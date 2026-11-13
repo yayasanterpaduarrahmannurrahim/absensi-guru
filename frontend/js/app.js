@@ -54,10 +54,26 @@ const App = (() => {
     try { localStorage.setItem(MODE_KEY, mode); } catch (e) { /* abaikan */ }
     state.tab = null;
     renderShell();
+    prefetchForMode();
     toast(mode === 'guru' ? 'Mode Guru — silakan absen seperti biasa.' : 'Mode Admin.', 'success');
   }
 
   const navFor = () => NAV[currentMode()];
+
+  /**
+   * Mengambil data menu-menu utama sekaligus (satu permintaan) di belakang layar, sehingga
+   * menu yang dibuka berikutnya langsung terisi tanpa menunggu server (±2 detik per permintaan).
+   */
+  function prefetchForMode() {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
+    const calls = currentMode() === 'admin'
+      ? [{ action: 'adminDashboard', payload: { tanggal: today } }, { action: 'adminListUsers' },
+        { action: 'adminListLeaves', payload: { status: 'Menunggu' } }, { action: 'getLocationConfig' }, { action: 'adminGetSchedule' }]
+      : [{ action: 'getToday' }, { action: 'getLocationConfig' }, { action: 'myHistory', payload: { bulan: today.slice(0, 7) } },
+        { action: 'myLeaves' }];
+    // Ditunda sebentar agar permintaan halaman pertama tidak berebut dengan prefetch.
+    setTimeout(() => { if (state.user) Api.prefetch(calls); }, 300);
+  }
 
   /* ---------- Inisialisasi ---------- */
 
@@ -76,6 +92,7 @@ const App = (() => {
 
     state.user = session.user;
     renderShell();
+    prefetchForMode();
     try {
       // Validasi ulang sesi & ambil profil terbaru.
       const { user } = await Api.call('me');
@@ -90,8 +107,7 @@ const App = (() => {
 
   async function loadPublicConfig() {
     try {
-      const cfg = await Api.call('getPublicConfig');
-      setSchoolName(cfg.schoolName);
+      await Api.swr('getPublicConfig', {}, cfg => setSchoolName(cfg.schoolName));
     } catch (e) { /* nama default tetap dipakai */ }
   }
 
@@ -257,6 +273,7 @@ const App = (() => {
     state.user = result.user;
     state.tab = null;
     renderShell();
+    prefetchForMode();
     toast('Selamat datang, ' + result.user.nama + '.', 'success');
   }
 

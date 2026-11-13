@@ -107,12 +107,39 @@ function requireSession_(token, level) {
   const session = getSessionByHash_(hash);
   if (!session || !(session.expires_at > Date.now())) throw invalid;
 
-  const user = findByKey_(SHEETS.USERS, session.user_id);
+  const user = getUserCached_(session.user_id);
   if (!user || user.status_akun !== STATUS_AKUN.AKTIF) throw invalid;
   if (level === 'admin' && !hasRole_(user, ROLES.ADMIN)) {
     throw new AppError('FORBIDDEN', 'Anda tidak memiliki akses ke fitur ini.');
   }
   return { tokenHash: hash, user: user };
+}
+
+const USER_CACHE_PREFIX = 'usr_';
+const USER_CACHE_SECONDS = 120;
+
+/**
+ * Data pengguna untuk pemeriksaan sesi, disimpan sementara di CacheService agar setiap
+ * permintaan tidak perlu membaca sheet USERS. Cache dibuang otomatis setiap kali baris
+ * USERS diubah/dihapus lewat Db.gs (lihat invalidateUserCache_), sehingga penonaktifan
+ * atau pencabutan hak admin tetap langsung berlaku. Perubahan manual langsung di
+ * spreadsheet berlaku paling lambat 2 menit.
+ */
+function getUserCached_(userId) {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get(USER_CACHE_PREFIX + userId);
+  if (hit) return JSON.parse(hit);
+  const user = findByKey_(SHEETS.USERS, userId);
+  if (user) {
+    const copy = Object.assign({}, user);
+    delete copy._row;
+    cache.put(USER_CACHE_PREFIX + userId, JSON.stringify(copy), USER_CACHE_SECONDS);
+  }
+  return user;
+}
+
+function invalidateUserCache_(userId) {
+  if (userId) CacheService.getScriptCache().remove(USER_CACHE_PREFIX + userId);
 }
 
 /** Menghapus sesi yang sudah kedaluwarsa. */

@@ -87,14 +87,15 @@ const Admin = (() => {
   async function loadDashboard() {
     const date = s.date;
     try {
-      const data = await Api.call('adminDashboard', { tanggal: date });
-      if (date !== s.date || !document.getElementById('kpis')) return;
-      s.data = data;
-      App.setBadge('pengajuan', data.pendingLeaves);
-      renderBanner();
-      renderKpis();
-      renderChart();
-      renderRekap();
+      await Api.swr('adminDashboard', { tanggal: date }, data => {
+        if (date !== s.date || !document.getElementById('kpis')) return;
+        s.data = data;
+        App.setBadge('pengajuan', data.pendingLeaves);
+        renderBanner();
+        renderKpis();
+        renderChart();
+        renderRekap();
+      });
     } catch (err) {
       const k = document.getElementById('kpis');
       if (k) k.innerHTML = `<div class="alert alert-error" style="grid-column:1/-1">${esc(err.message)}</div>`;
@@ -440,7 +441,9 @@ const Admin = (() => {
       return;
     }
     if (!s.users.length) {
-      try { s.users = await Api.call('adminListUsers'); } catch (e) { /* daftar pilihan guru opsional */ }
+      const cachedUsers = Api.peek('adminListUsers');
+      if (cachedUsers) s.users = cachedUsers;
+      else try { s.users = await Api.call('adminListUsers'); } catch (e) { /* daftar pilihan guru opsional */ }
     }
     const current = todayWib().slice(0, 7);
     const options = s.users.filter(u => isGuru(u) || u.userId === rv.userId);
@@ -477,10 +480,11 @@ const Admin = (() => {
 
     const want = rv.userId + '|' + rv.bulan;
     try {
-      const data = await Api.call('adminGuruMonth', { userId: rv.userId, bulan: rv.bulan });
-      if (!document.getElementById('rv-list') || want !== rv.userId + '|' + rv.bulan) return;
-      rv.data = data;
-      renderRevisionList();
+      await Api.swr('adminGuruMonth', { userId: rv.userId, bulan: rv.bulan }, data => {
+        if (!document.getElementById('rv-list') || want !== rv.userId + '|' + rv.bulan) return;
+        rv.data = data;
+        renderRevisionList();
+      });
     } catch (err) {
       const box = document.getElementById('rv-list');
       if (box) box.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
@@ -637,10 +641,11 @@ const Admin = (() => {
     formError('rep-error', '');
     const run = async () => {
       try {
-        const data = await Api.call('adminReport', { mulai: rep.mulai, selesai: rep.selesai, jenjang: rep.jenjang });
-        if (!out.isConnected) return;
-        rep.data = data;
-        renderReport(out);
+        await Api.swr('adminReport', { mulai: rep.mulai, selesai: rep.selesai, jenjang: rep.jenjang }, data => {
+          if (!out.isConnected) return;
+          rep.data = data;
+          renderReport(out);
+        });
       } catch (err) {
         if (!out.isConnected) return;
         formError('rep-error', err.message);
@@ -788,8 +793,7 @@ const Admin = (() => {
     document.getElementById('btn-add-user').onclick = () => openUserForm(null);
     document.getElementById('user-search').oninput = e => { s.userSearch = e.target.value; renderUserList(); };
     try {
-      s.users = await Api.call('adminListUsers');
-      renderUserList();
+      await Api.swr('adminListUsers', {}, data => { s.users = data; renderUserList(); });
     } catch (err) {
       const list = document.getElementById('user-list');
       if (list) list.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
@@ -1003,16 +1007,17 @@ const Admin = (() => {
     const box = document.getElementById('audit-list');
     if (!box) return;
     try {
-      const logs = await Api.call('adminAuditLog', { q });
-      if (!box.isConnected) return;
-      box.innerHTML = logs.length
-        ? logs.map(l => `
-            <div class="audit-item">
-              <div class="audit-top"><strong>${esc(ACTIVITY[l.aktivitas] || l.aktivitas)}</strong><span>${esc(l.waktu)}</span></div>
-              <div class="audit-who">${esc(l.pelaku)}</div>
-              ${l.detail && l.detail !== '{}' ? `<div class="audit-detail">${esc(summarizeDetail(l.detail))}</div>` : ''}
-            </div>`).join('') + '<p class="rekap-foot">Menampilkan maksimal 200 aktivitas terbaru.</p>'
-        : '<div class="empty">Tidak ada aktivitas yang cocok.</div>';
+      await Api.swr('adminAuditLog', { q }, logs => {
+        if (!box.isConnected) return;
+        box.innerHTML = logs.length
+          ? logs.map(l => `
+              <div class="audit-item">
+                <div class="audit-top"><strong>${esc(ACTIVITY[l.aktivitas] || l.aktivitas)}</strong><span>${esc(l.waktu)}</span></div>
+                <div class="audit-who">${esc(l.pelaku)}</div>
+                ${l.detail && l.detail !== '{}' ? `<div class="audit-detail">${esc(summarizeDetail(l.detail))}</div>` : ''}
+              </div>`).join('') + '<p class="rekap-foot">Menampilkan maksimal 200 aktivitas terbaru.</p>'
+          : '<div class="empty">Tidak ada aktivitas yang cocok.</div>';
+      });
     } catch (err) {
       if (box.isConnected) box.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
     }
@@ -1023,15 +1028,28 @@ const Admin = (() => {
   const NAMA_HARI = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
 
   async function settings(view) {
-    view.innerHTML = '<div class="card empty"><span class="spinner spinner-dark"></span></div>';
+    const NEED = ['getLocationConfig', 'adminGetSchedule', 'adminListUsers'];
+    const cached = NEED.map(a => Api.peek(a));
     let loc, sch, people;
-    try {
-      [loc, sch, people] = await Promise.all([Api.call('getLocationConfig'), Api.call('adminGetSchedule'), Api.call('adminListUsers')]);
-    } catch (err) {
-      view.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
-      return;
+    if (cached.every(c => c !== undefined)) {
+      [loc, sch, people] = cached;
+      // Perbarui di belakang layar; formulir disegarkan hanya bila admin belum mengetik apa pun.
+      Promise.all(NEED.map(a => Api.call(a))).then(fresh => {
+        if (JSON.stringify(fresh) === JSON.stringify(cached)) return;
+        if (view.isConnected && App.state.tab === 'pengaturan' && !view.dataset.dirty) settings(view);
+      }).catch(() => { /* tetap pakai data tersimpan */ });
+    } else {
+      view.innerHTML = '<div class="card empty"><span class="spinner spinner-dark"></span></div>';
+      try {
+        [loc, sch, people] = await Promise.all(NEED.map(a => Api.call(a)));
+      } catch (err) {
+        view.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
+        return;
+      }
     }
     if (!view.isConnected) return;
+    delete view.dataset.dirty;
+    view.oninput = () => { view.dataset.dirty = '1'; };
     const time = (name, label, value, help) => `<label>${label}<input name="${name}" type="time" required value="${esc(value)}"><small>${help}</small></label>`;
 
     view.innerHTML = `
