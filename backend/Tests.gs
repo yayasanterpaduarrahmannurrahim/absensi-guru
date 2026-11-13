@@ -48,7 +48,7 @@ function createTestRunner_() {
  */
 function runSemuaTes() {
   const suites = ['runTahap1Tests', 'runTahap2Tests', 'runTahap3Tests', 'runTahap4Tests',
-    'runTahap5Tests', 'runTahap6Tests', 'runTahap7Tests', 'runLoginKodeTests', 'runSifHapusTests', 'runRevisiTests'];
+    'runTahap5Tests', 'runTahap6Tests', 'runTahap7Tests', 'runLoginKodeTests', 'runSifHapusTests', 'runRevisiTests', 'runPeranTests'];
   const summary = suites.map(name => {
     console.log('===== ' + name + ' =====');
     try {
@@ -1070,6 +1070,73 @@ function runRevisiTests() {
   } finally {
     deleteRowsWhere_(SHEETS.ABSENSI, r => r.user_id === g.user_id);
     deleteRowsWhere_(SHEETS.USERS, r => r.user_id === g.user_id);
+  }
+  finish();
+}
+
+/** Peran ganda (Guru + Admin) dalam satu akun. Pengguna uji dihapus di akhir. */
+function runPeranTests() {
+  const { test, assert, assertEq, expectError, finish } = createTestRunner_();
+  resetDbCache_();
+  const tag = Utilities.getUuid().slice(0, 6).toLowerCase();
+  const ctx = { session: { user: { user_id: 'TEST' } } };
+  const email = 'uji.peran.' + tag + '@example.invalid';
+  let dual = null;
+
+  try {
+    test('Membaca peran: format lama, ganda, urutan tetap, nilai asing diabaikan', () => {
+      assertEq(parseRoles_('guru').join(','), 'guru', 'lama: guru');
+      assertEq(parseRoles_('admin').join(','), 'admin', 'lama: admin');
+      assertEq(parseRoles_('admin, guru').join(','), 'guru,admin', 'ganda diurutkan');
+      assertEq(parseRoles_('guru,superadmin').join(','), 'guru', 'nilai asing diabaikan');
+      assert(hasRole_({ role: 'guru,admin' }, 'admin') && hasRole_({ role: 'guru,admin' }, 'guru'), 'hasRole_ ganda');
+      assert(!hasRole_({ role: 'guru' }, 'admin'), 'guru bukan admin');
+    });
+
+    test('Validasi peran dari formulir', () => {
+      const base = { nama: 'Guru Ganda', email: email, jenjang: 'SD' };
+      assertEq(validateUserInput_(Object.assign({ roles: ['admin', 'guru', 'guru'] }, base)).role, 'guru,admin', 'ganda');
+      assertEq(validateUserInput_(Object.assign({ role: 'guru' }, base)).role, 'guru', 'format lama');
+      expectError('VALIDATION', () => validateUserInput_(Object.assign({ roles: [] }, base)), 'tanpa peran');
+      expectError('VALIDATION', () => validateUserInput_(Object.assign({ roles: ['guru', 'kepala'] }, base)), 'peran asing');
+      expectError('VALIDATION', () => validateUserInput_({ nama: 'Tanpa Jenjang', email: email, roles: ['guru', 'admin'] }), 'guru wajib jenjang');
+      assertEq(validateUserInput_({ nama: 'Admin Saja', email: email, roles: ['admin'] }).jenjang, '', 'admin murni boleh tanpa jenjang');
+    });
+
+    test('Akun ganda: bisa fitur admin DAN dihitung sebagai guru', () => {
+      dual = apiAdminCreateUser_({ nama: 'Guru Ganda', email: email, jenjang: 'SD', roles: ['guru', 'admin'] }, ctx);
+      assertEq(dual.roles.join(','), 'guru,admin', 'roles di frontend');
+      assertEq(dual.role, 'admin', 'peran utama = admin');
+      const s = createSessionForEmail_(email);
+      assertEq(requireSession_(s.token, 'admin').user.user_id, dual.userId, 'akses admin');
+      assert(dispatch_({ action: 'adminListUsers', token: s.token }, 'POST').ok, 'fitur admin');
+      assert(dispatch_({ action: 'getToday', token: s.token }, 'POST').ok, 'fitur guru (absen)');
+      const row = findByKey_(SHEETS.USERS, dual.userId);
+      const rows = buildDayRows_([row], [], '2000-01-03', { hariKerja: [1, 2, 3, 4, 5, 6], sifAcuan: '2000-01-08' });
+      assertEq(rows.length, 1, 'muncul di rekap harian');
+      assertEq(rows[0].status, BELUM_ABSEN, 'dihitung wajib absen');
+      assert(scheduledGurus_([row], '2000-01-03', { hariKerja: [1, 2, 3, 4, 5, 6] }).length === 1, 'ikut penandaan Alpa otomatis');
+    });
+
+    test('Mencabut peran guru / admin dari akun ganda', () => {
+      const asGuru = apiAdminUpdateUser_({ userId: dual.userId, nama: 'Guru Ganda', email: email, jenjang: 'SD', roles: ['guru'], statusAkun: 'aktif' }, ctx);
+      assertEq(asGuru.roles.join(','), 'guru', 'tinggal guru');
+      const s = createSessionForEmail_(email);
+      assertEq(dispatch_({ action: 'adminListUsers', token: s.token }, 'POST').error.code, 'FORBIDDEN', 'hak admin langsung hilang');
+      const asAdmin = apiAdminUpdateUser_({ userId: dual.userId, nama: 'Guru Ganda', email: email, jenjang: '', roles: ['admin'], statusAkun: 'aktif' }, ctx);
+      assertEq(asAdmin.roles.join(','), 'admin', 'tinggal admin');
+      assertEq(buildDayRows_([findByKey_(SHEETS.USERS, dual.userId)], []).length, 0, 'admin murni tidak dihitung di rekap');
+    });
+
+    test('Admin tidak bisa mencabut hak admin sendiri, tetapi boleh menambah peran guru', () => {
+      const self = { session: { user: findByKey_(SHEETS.USERS, dual.userId) } };
+      expectError('FORBIDDEN_SELF', () => apiAdminUpdateUser_({ userId: dual.userId, nama: 'Guru Ganda', email: email, jenjang: 'SD', roles: ['guru'], statusAkun: 'aktif' }, self), 'cabut admin sendiri');
+      const both = apiAdminUpdateUser_({ userId: dual.userId, nama: 'Guru Ganda', email: email, jenjang: 'SD', roles: ['guru', 'admin'], statusAkun: 'aktif' }, self);
+      assertEq(both.roles.join(','), 'guru,admin', 'menambah peran guru untuk diri sendiri');
+    });
+  } finally {
+    const left = deleteRowsWhere_(SHEETS.USERS, u => u.email === email);
+    left.forEach(u => deleteSessionsForUser_(u.user_id));
   }
   finish();
 }

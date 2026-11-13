@@ -109,7 +109,7 @@ function requireSession_(token, level) {
 
   const user = findByKey_(SHEETS.USERS, session.user_id);
   if (!user || user.status_akun !== STATUS_AKUN.AKTIF) throw invalid;
-  if (level === 'admin' && user.role !== ROLES.ADMIN) {
+  if (level === 'admin' && !hasRole_(user, ROLES.ADMIN)) {
     throw new AppError('FORBIDDEN', 'Anda tidak memiliki akses ke fitur ini.');
   }
   return { tokenHash: hash, user: user };

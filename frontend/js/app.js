@@ -35,7 +35,29 @@ const App = (() => {
   };
 
   const root = () => document.getElementById('app');
-  const navFor = () => NAV[state.user && state.user.role === 'admin' ? 'admin' : 'guru'];
+  /* ---------- Peran & mode ----------
+   * Akun bisa memiliki lebih dari satu peran (Guru dan/atau Admin). Akun ganda memilih
+   * mode tampilan: Mode Admin (kelola) atau Mode Guru (absen). Pilihan diingat di perangkat. */
+  const MODE_KEY = 'absensi_mode';
+  const rolesOf = u => (u && Array.isArray(u.roles) && u.roles.length ? u.roles : [u && u.role === 'admin' ? 'admin' : 'guru']);
+  const isDual = u => rolesOf(u).includes('admin') && rolesOf(u).includes('guru');
+
+  function currentMode() {
+    const roles = rolesOf(state.user);
+    if (!isDual(state.user)) return roles.includes('admin') ? 'admin' : 'guru';
+    let saved = '';
+    try { saved = localStorage.getItem(MODE_KEY) || ''; } catch (e) { /* abaikan */ }
+    return saved === 'guru' ? 'guru' : 'admin';
+  }
+
+  function switchMode(mode) {
+    try { localStorage.setItem(MODE_KEY, mode); } catch (e) { /* abaikan */ }
+    state.tab = null;
+    renderShell();
+    toast(mode === 'guru' ? 'Mode Guru — silakan absen seperti biasa.' : 'Mode Admin.', 'success');
+  }
+
+  const navFor = () => NAV[currentMode()];
 
   /* ---------- Inisialisasi ---------- */
 
@@ -57,7 +79,7 @@ const App = (() => {
     try {
       // Validasi ulang sesi & ambil profil terbaru.
       const { user } = await Api.call('me');
-      const roleChanged = user.role !== state.user.role;
+      const roleChanged = rolesOf(user).join(',') !== rolesOf(state.user).join(',');
       state.user = user;
       Api.saveSession(Object.assign({}, session, { user }));
       if (roleChanged) { state.tab = null; renderShell(); } else updateUserBits();
@@ -300,7 +322,10 @@ const App = (() => {
     const nav = navFor();
     if (!nav.some(n => n.id === state.tab)) state.tab = nav[0].id;
     const u = state.user;
-    const roleLabel = u.role === 'admin' ? 'Admin' : 'Guru' + (u.jenjang ? ' ' + u.jenjang : '');
+    const mode = currentMode();
+    const roleLabel = isDual(u)
+      ? (mode === 'admin' ? 'Mode Admin' : 'Mode Guru') + ' · Guru & Admin'
+      : mode === 'admin' ? 'Admin' : 'Guru' + (u.jenjang ? ' ' + u.jenjang : '');
 
     root().innerHTML = `
       <div class="shell">
@@ -409,7 +434,10 @@ const App = (() => {
         <div class="avatar avatar-sm">${esc(initials(u.nama))}</div>
         <div><strong>${esc(u.nama)}</strong><span>${esc(u.email)}</span></div>
       </div>
-      ${u.role !== 'admin' ? '<button class="am-item" role="menuitem" data-profile><i data-lucide="circle-user-round"></i> Profil saya</button>' : ''}
+      ${isDual(u) ? (currentMode() === 'admin'
+        ? '<button class="am-item am-switch" role="menuitem" data-mode="guru"><i data-lucide="fingerprint"></i> Beralih ke Mode Guru (absen)</button>'
+        : '<button class="am-item am-switch" role="menuitem" data-mode="admin"><i data-lucide="layout-dashboard"></i> Beralih ke Mode Admin</button>') : ''}
+      ${currentMode() === 'guru' ? '<button class="am-item" role="menuitem" data-profile><i data-lucide="circle-user-round"></i> Profil saya</button>' : ''}
       <button class="am-item am-danger" role="menuitem" data-out><i data-lucide="log-out"></i> Keluar</button>`;
     document.body.appendChild(menu);
     icons();
@@ -425,11 +453,13 @@ const App = (() => {
     document.addEventListener('keydown', onKey);
     const p = menu.querySelector('[data-profile]');
     if (p) p.onclick = () => { close(); go('profil'); };
+    const sw = menu.querySelector('[data-mode]');
+    if (sw) sw.onclick = () => { close(); switchMode(sw.dataset.mode); };
     menu.querySelector('[data-out]').onclick = () => { close(); logout(); };
     onLeave(close);
   }
 
-  return { init, state, go, onLeave, setBadge, setUser, setSchoolName, logout };
+  return { init, state, go, onLeave, setBadge, setUser, setSchoolName, logout, switchMode, isDual };
 })();
 
 document.addEventListener('DOMContentLoaded', App.init);

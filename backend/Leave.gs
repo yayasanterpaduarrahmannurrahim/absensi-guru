@@ -292,7 +292,7 @@ function autoMarkTanpaKeterangan() {
   const last = props.getProperty(PROP_LAST_ALPA_DATE) || addDays_(now.tanggal, -1);
   const pastCutoff = now.jam.slice(0, 5) > schedule.batasAbsenMasuk;
 
-  const gurus = readAll_(SHEETS.USERS).filter(u => u.role === ROLES.GURU && u.status_akun === STATUS_AKUN.AKTIF);
+  const gurus = readAll_(SHEETS.USERS).filter(u => hasRole_(u, ROLES.GURU) && u.status_akun === STATUS_AKUN.AKTIF);
   for (let i = 7; i >= 0; i--) {
     const t = addDays_(now.tanggal, -i);
     if (t <= last || (i === 0 && !pastCutoff)) continue;

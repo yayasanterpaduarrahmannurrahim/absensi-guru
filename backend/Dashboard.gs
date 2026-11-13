@@ -65,7 +65,7 @@ function buildDayRows_(users, records, tanggal, schedule) {
   const rows = [];
   users.forEach(u => {
     known[u.user_id] = true;
-    if (byUser[u.user_id] || (u.role === ROLES.GURU && u.status_akun === STATUS_AKUN.AKTIF)) {
+    if (byUser[u.user_id] || (hasRole_(u, ROLES.GURU) && u.status_akun === STATUS_AKUN.AKTIF)) {
       const offShift = !!(tanggal && schedule) && schedule.hariKerja.indexOf(dayOfWeek_(tanggal)) >= 0 &&
         !isScheduledFor_(u, tanggal, schedule);
       rows.push(adminDayRow_(u, byUser[u.user_id], offShift));
@@ -110,7 +110,7 @@ function apiAdminDashboard_(payload) {
   const tanggal = payload.tanggal ? parseIsoDate_(payload.tanggal, 'Tanggal') : now.tanggal;
   const schedule = getSchedule_();
   const users = readAll_(SHEETS.USERS);
-  const activeGurus = users.filter(u => u.role === ROLES.GURU && u.status_akun === STATUS_AKUN.AKTIF);
+  const activeGurus = users.filter(u => hasRole_(u, ROLES.GURU) && u.status_akun === STATUS_AKUN.AKTIF);
 
   const rows = buildDayRows_(users, findRowsBy_(SHEETS.ABSENSI, 'tanggal', tanggal), tanggal, schedule);
 

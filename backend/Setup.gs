@@ -125,7 +125,7 @@ function seedSettings_() {
  */
 function seedAdmin_() {
   const hasAdmin = readAll_(SHEETS.USERS)
-    .some(u => u.role === ROLES.ADMIN && u.status_akun === STATUS_AKUN.AKTIF);
+    .some(u => hasRole_(u, ROLES.ADMIN) && u.status_akun === STATUS_AKUN.AKTIF);
   if (hasAdmin) return null;
 
   const email = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();

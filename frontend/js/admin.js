@@ -19,6 +19,9 @@ const Admin = (() => {
     { key: 'Belum absen', label: 'Belum absen' }, { key: 'Libur sif', label: 'Libur sif' },
   ];
   const ROLE_LABEL = { admin: 'Admin', guru: 'Guru' };
+  /** Daftar peran pengguna; mendukung data lama yang hanya punya `role`. */
+  const rolesOf = u => (Array.isArray(u.roles) && u.roles.length ? u.roles : [u.role === 'admin' ? 'admin' : 'guru']);
+  const isGuru = u => rolesOf(u).includes('guru');
 
   const s = { date: null, data: null, search: '', jenjang: '', status: '', users: [], userSearch: '' };
 
@@ -106,9 +109,14 @@ const Admin = (() => {
       parts.push(`<button class="banner" id="go-leaves"><i data-lucide="inbox"></i>${d.pendingLeaves} pengajuan izin/sakit menunggu persetujuan<i data-lucide="chevron-right"></i></button>`);
     }
     if (!d.isWorkday) parts.push('<div class="alert alert-info">Tanggal ini bukan hari kerja.</div>');
+    if (App.isDual(App.state.user)) {
+      parts.push('<button class="banner banner-neutral" id="go-guru-mode"><i data-lucide="fingerprint"></i>Anda juga terdaftar sebagai guru — absen hari ini di Mode Guru<i data-lucide="chevron-right"></i></button>');
+    }
     box.innerHTML = parts.join('');
     box.style.display = parts.length ? 'grid' : 'none';
     box.style.gap = '8px';
+    const toGuru = document.getElementById('go-guru-mode');
+    if (toGuru) toGuru.onclick = () => App.switchMode('guru');
     const go = document.getElementById('go-leaves');
     if (go) go.onclick = () => App.go('pengajuan');
     icons();
@@ -435,7 +443,7 @@ const Admin = (() => {
       try { s.users = await Api.call('adminListUsers'); } catch (e) { /* daftar pilihan guru opsional */ }
     }
     const current = todayWib().slice(0, 7);
-    const options = s.users.filter(u => u.role === 'guru' || u.userId === rv.userId);
+    const options = s.users.filter(u => isGuru(u) || u.userId === rv.userId);
     view.innerHTML = `
       <div class="page-head">
         <div><h1>Revisi Absensi</h1><p>Ketuk tanggal untuk merevisi, atau centang beberapa tanggal sekaligus.</p></div>
@@ -797,7 +805,7 @@ const Admin = (() => {
       list.innerHTML = `<div class="empty">${q ? 'Tidak ada pengguna yang cocok.' : 'Belum ada pengguna.'}</div>`;
       return;
     }
-    const gurus = s.users.filter(u => u.role === 'guru');
+    const gurus = s.users.filter(isGuru);
     const count = j => gurus.filter(u => u.jenjang === j && u.statusAkun === 'aktif').length;
     list.innerHTML = `
       <p class="muted list-summary">${gurus.length} guru · ${count('TK')} TK aktif · ${count('SD')} SD aktif · ketuk nama untuk mengelola</p>
@@ -811,7 +819,7 @@ const Admin = (() => {
               <strong>${esc(u.nama)}${self ? ' <span class="muted">(Anda)</span>' : ''}</strong>
               <span class="user-email">${esc(u.email)}</span>
               <span class="badges">
-                <span class="badge badge-${esc(u.role)}">${esc(ROLE_LABEL[u.role] || u.role)}</span>
+                ${rolesOf(u).map(r => `<span class="badge badge-${r}">${ROLE_LABEL[r]}</span>`).join('')}
                 ${u.jenjang ? `<span class="badge">${esc(u.jenjang)}</span>` : ''}
                 ${u.sifSabtu ? `<span class="badge badge-sif">${esc(SIF_LABEL[u.sifSabtu])}</span>` : ''}
                 ${active ? '' : '<span class="badge badge-off">Nonaktif</span>'}
@@ -837,12 +845,12 @@ const Admin = (() => {
 
   function openUserForm(user) {
     const isEdit = !!user;
-    const u = user || { nama: '', email: '', nip: '', role: 'guru', jenjang: '', statusAkun: 'aktif' };
+    const u = user || { nama: '', email: '', nip: '', role: 'guru', roles: ['guru'], jenjang: '', statusAkun: 'aktif' };
     const self = isEdit && u.userId === App.state.user.userId;
     openModal(isEdit ? 'Ubah Data Guru' : 'Tambah Guru', (body, close) => {
       body.innerHTML = `
         <form id="user-form" class="form" novalidate>
-          ${isEdit && u.role === 'guru' ? '<button type="button" class="btn btn-primary btn-sm btn-block" data-history><i data-lucide="calendar-days"></i> Riwayat &amp; Revisi Absensi</button>' : ''}
+          ${isEdit && isGuru(u) ? '<button type="button" class="btn btn-primary btn-sm btn-block" data-history><i data-lucide="calendar-days"></i> Riwayat &amp; Revisi Absensi</button>' : ''}
           ${isEdit && !self ? `
           <div class="quick-actions">
             <button type="button" class="btn btn-ghost btn-sm" data-toggle-user><i data-lucide="${u.statusAkun === 'aktif' ? 'user-x' : 'user-check'}"></i> ${u.statusAkun === 'aktif' ? 'Nonaktifkan' : 'Aktifkan'}</button>
@@ -852,10 +860,13 @@ const Admin = (() => {
           <label>Email<input name="email" type="email" required maxlength="254" value="${esc(u.email)}" autocomplete="off" placeholder="nama@gmail.com">
             <small>Dipakai guru untuk login (akun Google atau kode email).</small></label>
           <label><span>NIP <span class="muted">(opsional)</span></span><input name="nip" inputmode="numeric" maxlength="30" value="${esc(u.nip)}" autocomplete="off"></label>
+          <fieldset class="days">
+            <legend>Peran <span class="muted">(boleh lebih dari satu)</span></legend>
+            <label class="day-chip"><input type="checkbox" name="roles" value="guru" ${rolesOf(u).includes('guru') ? 'checked' : ''}><span>Guru — wajib absen</span></label>
+            <label class="day-chip"><input type="checkbox" name="roles" value="admin" ${rolesOf(u).includes('admin') ? 'checked' : ''} ${self ? 'disabled' : ''}><span>Admin — kelola aplikasi</span></label>
+          </fieldset>
+          ${self ? '<small class="muted">Hak admin akun Anda sendiri tidak dapat dicabut. Centang Guru bila Anda juga mengajar dan wajib absen.</small>' : ''}
           <div class="form-row">
-            <label>Peran<select name="role" ${self ? 'disabled' : ''}>
-              <option value="guru" ${u.role === 'guru' ? 'selected' : ''}>Guru</option>
-              <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option></select></label>
             <label>Jenjang<select name="jenjang">
               <option value="" ${!u.jenjang ? 'selected' : ''}>—</option>
               <option value="TK" ${u.jenjang === 'TK' ? 'selected' : ''}>TK</option>
@@ -887,10 +898,13 @@ const Admin = (() => {
       form.onsubmit = async e => {
         e.preventDefault();
         const f = new FormData(form);
-        const payload = { nama: f.get('nama'), email: f.get('email'), nip: f.get('nip'), role: self ? u.role : f.get('role'), jenjang: f.get('jenjang'), sifSabtu: f.get('sifSabtu') };
+        // Admin tidak bisa mencabut hak admin sendiri (kotak dinonaktifkan, tidak ikut terkirim).
+        const roles = f.getAll('roles').concat(self ? ['admin'] : []).filter((r, i, a) => a.indexOf(r) === i);
+        const payload = { nama: f.get('nama'), email: f.get('email'), nip: f.get('nip'), roles, jenjang: f.get('jenjang'), sifSabtu: f.get('sifSabtu') };
         const errBox = body.querySelector('#form-error');
         errBox.hidden = true;
-        if (payload.role === 'guru' && !payload.jenjang) { errBox.textContent = 'Pilih jenjang (TK atau SD) untuk guru.'; errBox.hidden = false; return; }
+        if (!roles.length) { errBox.textContent = 'Pilih minimal satu peran.'; errBox.hidden = false; return; }
+        if (roles.includes('guru') && !payload.jenjang) { errBox.textContent = 'Pilih jenjang (TK atau SD) untuk peran Guru.'; errBox.hidden = false; return; }
         await withLoading(form.querySelector('[type=submit]'), async () => {
           try {
             const saved = isEdit
@@ -923,7 +937,7 @@ const Admin = (() => {
     await runWithOptionalLoading(button, async () => {
       try {
         const saved = await Api.call('adminUpdateUser', {
-          userId: u.userId, nama: u.nama, email: u.email, nip: u.nip, role: u.role, jenjang: u.jenjang,
+          userId: u.userId, nama: u.nama, email: u.email, nip: u.nip, roles: rolesOf(u), jenjang: u.jenjang,
           sifSabtu: u.sifSabtu || '', statusAkun: activate ? 'aktif' : 'nonaktif',
         });
         replaceUser(saved);

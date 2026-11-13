@@ -40,7 +40,7 @@ function buildReport_(users, records, range, scheduleOrHariKerja, today) {
   const people = [];
   users.forEach(u => {
     known[u.user_id] = true;
-    if ((u.role === ROLES.GURU && u.status_akun === STATUS_AKUN.AKTIF) || byUser[u.user_id]) people.push(u);
+    if ((hasRole_(u, ROLES.GURU) && u.status_akun === STATUS_AKUN.AKTIF) || byUser[u.user_id]) people.push(u);
   });
   Object.keys(byUser).filter(id => !known[id]).forEach(id => {
     people.push({ user_id: id, nama_guru: byUser[id][0].nama_guru, jenjang: '', created_at: '' });
